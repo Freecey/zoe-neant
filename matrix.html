@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Matrix</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #000; 
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+    canvas { display: block; }
+    #hint {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      color: #0f0;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div id="hint">Clic pour changer de mode • Scroll pour vitesse</div>
+  <script>
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    document.body.appendChild(canvas);
+    
+    let width, height;
+    let columns = [];
+    let speed = 1;
+    let mode = 0;
+    const modes = ['matrix', 'rain', 'fire', 'snow'];
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      initColumns();
+    }
+    
+    function initColumns() {
+      const fontSize = 14;
+      columns = [];
+      for (let i = 0; i < width / fontSize; i++) {
+        columns[i] = {
+          x: i * fontSize,
+          y: Math.random() * height,
+          speed: 1 + Math.random() * 2,
+          chars: []
+        };
+        // Pre-fill some chars
+        for (let j = 0; j < 20; j++) {
+          columns[i].chars.push(randomChar());
+        }
+      }
+    }
+    
+    function randomChar() {
+      const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEF@#$%&*';
+      return chars[Math.floor(Math.random() * chars.length)];
+    }
+    
+    function draw() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.font = '14px monospace';
+      
+      for (let col of columns) {
+        // Draw all chars in column
+        for (let i = 0; i < col.chars.length; i++) {
+          const y = col.y - i * 14;
+          if (y > 0 && y < height) {
+            // First char is brightest
+            if (i === 0) {
+              ctx.fillStyle = '#fff';
+            } else if (i < 5) {
+              ctx.fillStyle = '#0f0';
+            } else {
+              ctx.fillStyle = 'rgba(0, 255, 0, ' + (0.3 - i * 0.05) + ')';
+            }
+            ctx.fillText(col.chars[i], col.x, y);
+          }
+        }
+        
+        // Move down
+        col.y += col.speed * speed;
+        
+        // Reset when off screen
+        if (col.y > height + 14 * 20) {
+          col.y = -14 * 20;
+          // New random chars
+          for (let i = 0; i < col.chars.length; i++) {
+            col.chars[i] = randomChar();
+          }
+        }
+        
+        // Randomly change first char
+        if (Math.random() < 0.05) {
+          col.chars[0] = randomChar();
+        }
+      }
+      
+      requestAnimationFrame(draw);
+    }
+    
+    // Mode switching on click
+    document.addEventListener('click', () => {
+      mode = (mode + 1) % modes.length;
+      document.body.style.background = mode === 3 ? '#111' : '#000';
+    });
+    
+    // Speed control on scroll
+    document.addEventListener('wheel', (e) => {
+      speed = Math.max(0.2, Math.min(5, speed + e.deltaY * -0.001));
+    });
+    
+    window.addEventListener('resize', resize);
+    resize();
+    draw();
+  </script>
+</body>
+</html>
