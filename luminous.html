@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Luminous</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#000;overflow:hidden}
+    canvas{display:block}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    const rays=[];
+    const num=36;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    for(let i=0;i<num;i++){
+      rays.push({
+        angle:(i/num)*Math.PI*2,
+        width:0.1,
+        hue:280+i*5
+      });
+    }
+    
+    function draw(){
+      x.fillStyle='rgba(0,0,0,.1)';
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      
+      for(let ray of rays){
+        const len=200+Math.sin(time+ray.angle*2)*100;
+        
+        // Ray
+        const gradient=x.createLinearGradient(cx,cy,cx+Math.cos(ray.angle)*len,cy+Math.sin(ray.angle)*len);
+        gradient.addColorStop(0,`hsla(${ray.hue},80%,70%,0.8)`);
+        gradient.addColorStop(1,'transparent');
+        
+        x.strokeStyle=gradient;
+        x.lineWidth=3;
+        x.beginPath();
+        x.moveTo(cx,cy);
+        x.lineTo(cx+Math.cos(ray.angle)*len,cy+Math.sin(ray.angle)*len);
+        x.stroke();
+        
+        // End glow
+        x.fillStyle=`hsla(${ray.hue},80%,60%,0.5)`;
+        x.beginPath();
+        x.arc(cx+Math.cos(ray.angle)*len,cy+Math.sin(ray.angle)*len,5,0,Math.PI*2);
+        x.fill();
+      }
+      
+      // Center
+      x.fillStyle='#fff';
+      x.font='14px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy);
+      
+      time+=0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    r();draw();
+  </script>
+</body>
+</html>

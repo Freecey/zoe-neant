@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Echo</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#050508;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #hint{position:fixed;top:20px;left:20px;color:#fff;opacity:0.4;font-size:11px}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hint">ZOE ECHO<br>Clic: émettre • Espace: effacer</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    const echoes=[];
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    class Echo{
+      constructor(xPos,yPos){
+        this.x=xPos;
+        this.y=yPos;
+        this.radius=10;
+        this.maxRadius=400;
+        this.hue=280+Math.random()*60;
+        this.alpha=1;
+      }
+      update(){
+        this.radius+=3;
+        this.alpha=1-(this.radius/this.maxRadius);
+        return this.alpha>0;
+      }
+      draw(){
+        x.strokeStyle=`hsla(${this.hue},70%,60%,${this.alpha})`;
+        x.lineWidth=2;
+        x.beginPath();
+        x.arc(this.x,this.y,this.radius,0,Math.PI*2);
+        x.stroke();
+        
+        // Inner rings
+        for(let i=1;i<4;i++){
+          const r=this.radius-i*30;
+          if(r>0){
+            x.strokeStyle=`hsla(${this.hue},70%,60%,${this.alpha*0.3})`;
+            x.lineWidth=1;
+            x.beginPath();
+            x.arc(this.x,this.y,r,0,Math.PI*2);
+            x.stroke();
+          }
+        }
+      }
+    }
+    
+    function draw(){
+      x.fillStyle='rgba(5,5,8,.15)';
+      x.fillRect(0,0,w,h);
+      
+      for(let i=echoes.length-1;i>=0;i--){
+        if(!echoes[i].update()){
+          echoes.splice(i,1);
+        }else{
+          echoes[i].draw();
+        }
+      }
+      
+      // Center text
+      x.fillStyle='#fff';
+      x.font='12px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',w/2,h/2);
+      
+      time+=0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('click',(e)=>{
+      echoes.push(new Echo(e.clientX,e.clientY));
+    });
+    window.addEventListener('keydown',(e)=>{
+      if(e.code==='Space')echoes.length=0;
+    });
+    
+    r();draw();
+  </script>
+</body>
+</html>

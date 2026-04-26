@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Waveform</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#030306;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #hint{position:fixed;bottom:20px;left:20px;color:#fff;opacity:0.4;font-size:11px}
+    #start{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.5);color:#fff;padding:20px 40px;font-family:'Courier New',monospace;font-size:14px;cursor:pointer;transition:opacity 0.3s}
+    #start:hover{background:rgba(167,139,250,0.3)}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <button id="start">CLIC POUR COMMENCER</button>
+  <div id="hint">ZOE WAVEFORM<br>Mic: sensibilité • Son: onde</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    const startBtn=document.getElementById('start');
+    let w,h,time=0,audioCtx,analyser,dataArray, micActive=false;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    async function initAudio(){
+      try{
+        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+        const source=audioCtx.createMediaStreamSource(stream);
+        analyser=audioCtx.createAnalyser();
+        analyser.fftSize=256;
+        source.connect(analyser);
+        dataArray=new Uint8Array(analyser.frequencyBinCount);
+        micActive=true;
+        startBtn.style.opacity='0';
+        startBtn.style.pointerEvents='none';
+      }catch(e){
+        console.log('Mic denied');
+        startBtn.textContent='MIC REFUSÉ - CLIQUE QUAND MÊME';
+      }
+    }
+    
+    startBtn.addEventListener('click',initAudio);
+    
+    function draw(){
+      x.fillStyle='rgba(3,3,6,.15)';
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      
+      // Get audio data or generate demo wave
+      let freqs;
+      if(micActive&&analyser){
+        analyser.getByteFrequencyData(dataArray);
+        freqs=dataArray;
+      }else{
+        // Demo mode
+        freqs=new Uint8Array(128);
+        for(let i=0;i<128;i++){
+          freqs[i]=Math.sin(time*2+i*0.1)*100+100;
+        }
+      }
+      
+      // Draw waveform circle
+      for(let i=0;i<freqs.length;i++){
+        const angle=(i/freqs.length)*Math.PI*2;
+        const val=freqs[i]/255;
+        const radius=50+val*150;
+        
+        const px=cx+Math.cos(angle)*radius;
+        const py=cy+Math.sin(angle)*radius;
+        const hue=280+i*2;
+        
+        x.strokeStyle=`hsla(${hue},70%,60%,${val})`;
+        x.lineWidth=2+val*3;
+        x.beginPath();
+        x.moveTo(cx+Math.cos(angle)*50,cy+Math.sin(angle)*50);
+        x.lineTo(px,py);
+        x.stroke();
+      }
+      
+      // Center
+      x.fillStyle='#fff';
+      x.font='14px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy);
+      x.font='10px Courier New';
+      x.fillStyle='rgba(255,255,255,.5)';
+      x.fillText(micActive?'MIC ACTIF':'INTRÉPIDE',cx,cy+18);
+      
+      time+=0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    r();draw();
+  </script>
+</body>
+</html>
