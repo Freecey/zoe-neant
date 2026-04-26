@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Cascade</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #hint{position:fixed;top:20px;left:20px;color:#fff;opacity:0.4;font-size:11px}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hint">ZOE CASCADE<br>Clic: ajouter • Clic droit: clear</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    const drops=[];
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    class Drop{
+      constructor(xPos){
+        this.x=xPos;
+        this.y=-20;
+        this.vy=0;
+        this.vx=(Math.random()-.5)*2;
+        this.size=2+Math.random()*4;
+        this.hue=280+Math.random()*60;
+        this.trail=[];
+      }
+      update(){
+        this.vy+=0.2;
+        this.y+=this.vy;
+        this.x+=this.vx;
+        
+        this.trail.push({x:this.x,y:this.y});
+        if(this.trail.length>20)this.trail.shift();
+        
+        // Splash
+        if(this.y>h-50){
+          splashes.push(new Splash(this.x,h-50,this.hue));
+          return false;
+        }
+        return true;
+      }
+      draw(){
+        // Trail
+        x.beginPath();
+        for(let i=0;i<this.trail.length;i++){
+          const t=this.trail[i];
+          if(i===0)x.moveTo(t.x,t.y);
+          else x.lineTo(t.x,t.y);
+        }
+        x.strokeStyle=`hsla(${this.hue},70%,60%,0.5)`;
+        x.lineWidth=this.size;
+        x.stroke();
+        
+        // Drop
+        x.fillStyle=`hsl(${this.hue},80%,70%)`;
+        x.beginPath();
+        x.arc(this.x,this.y,this.size,0,Math.PI*2);
+        x.fill();
+      }
+    }
+    
+    class Splash{
+      constructor(xPos,yPos,hue){
+        this.x=xPos;
+        this.y=yPos;
+        this.hue=hue;
+        this.age=0;
+        this.maxAge=30;
+      }
+      update(){
+        this.age++;
+        return this.age<this.maxAge;
+      }
+      draw(){
+        const progress=this.age/this.maxAge;
+        const radius=progress*50;
+        const alpha=1-progress;
+        
+        x.strokeStyle=`hsla(${this.hue},70%,60%,${alpha})`;
+        x.lineWidth=2;
+        x.beginPath();
+        x.arc(this.x,this.y,radius,Math.PI,0);
+        x.stroke();
+      }
+    }
+    
+    const splashes=[];
+    
+    function draw(){
+      x.fillStyle='rgba(0,0,0,.15)';
+      x.fillRect(0,0,w,h);
+      
+      // Gravity drops
+      for(let i=drops.length-1;i>=0;i--){
+        if(!drops[i].update()){
+          drops.splice(i,1);
+        }else{
+          drops[i].draw();
+        }
+      }
+      
+      // Splashes
+      for(let i=splashes.length-1;i>=0;i--){
+        if(!splashes[i].update()){
+          splashes.splice(i,1);
+        }else{
+          splashes[i].draw();
+        }
+      }
+      
+      // Random new drops
+      if(Math.random()<0.1){
+        drops.push(new Drop(Math.random()*w));
+      }
+      
+      // Pool
+      x.fillStyle='rgba(167,139,250,0.1)';
+      x.fillRect(0,h-50,w,50);
+      
+      // Text
+      x.fillStyle='#fff';
+      x.font='14px Courier New';
+      x.textAlign='center';
+      
+      time+=0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('click',(e)=>{
+      drops.push(new Drop(e.clientX));
+    });
+    window.addEventListener('contextmenu',(e)=>{
+      e.preventDefault();
+      drops.length=0;
+    });
+    
+    r();draw();
+  </script>
+</body>
+</html>
