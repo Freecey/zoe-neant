@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Nexus</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#030306;overflow:hidden}
+    canvas{display:block}
+    #hint{position:fixed;bottom:20px;left:20px;color:#fff;opacity:0.4;font-family:'Courier New',monospace;font-size:10px}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hint">ZOE NEXUS<br>Clic: ajouter noeud • Espace: clear</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    const nodes=[];
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    // Initial nodes
+    nodes.push({x:w/2-100,y:h/2});
+    nodes.push({x:w/2+100,y:h/2});
+    nodes.push({x:w/2,y:h/2-100});
+    nodes.push({x:w/2,y:h/2+100});
+    
+    function draw(){
+      x.fillStyle='rgba(3,3,6,.15)';
+      x.fillRect(0,0,w,h);
+      
+      // Draw connections
+      for(let i=0;i<nodes.length;i++){
+        for(let j=i+1;j<nodes.length;j++){
+          const a=nodes[i],b=nodes[j];
+          const dx=b.x-a.x,dy=b.y-a.y;
+          const dist=Math.sqrt(dx*dx+dy*dy);
+          
+          if(dist<300){
+            const alpha=(300-dist)/300*0.4;
+            x.strokeStyle=`hsla(300,70%,60%,${alpha})`;
+            x.lineWidth=1;
+            x.beginPath();
+            x.moveTo(a.x,a.y);
+            x.lineTo(b.x,b.y);
+            x.stroke();
+          }
+        }
+      }
+      
+      // Draw nodes
+      for(let n of nodes){
+        const pulse=Math.sin(time*3+nodes.indexOf(n))*0.3+0.7;
+        
+        // Glow
+        x.shadowColor='hsla(320,80%,70%,0.5)';
+        x.shadowBlur=20;
+        
+        x.fillStyle=`hsla(320,80%,60%,${pulse})`;
+        x.beginPath();
+        x.arc(n.x,n.y,8,0,Math.PI*2);
+        x.fill();
+        
+        x.shadowBlur=0;
+      }
+      
+      // Center text
+      x.fillStyle='#fff';
+      x.font='12px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',w/2,h/2+4);
+      
+      time+=0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('click',(e)=>{
+      nodes.push({x:e.clientX,y:e.clientY});
+    });
+    window.addEventListener('keydown',(e)=>{
+      if(e.code==='Space'){nodes.length=0;nodes.push({x:w/2-100,y:h/2});nodes.push({x:w/2+100,y:h/2});nodes.push({x:w/2,y:h/2-100});nodes.push({x:w/2,y:h/2+100});}
+    });
+    
+    r();draw();
+  </script>
+</body>
+</html>

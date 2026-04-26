@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Flux</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#050508;overflow:hidden}
+    canvas{display:block}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    function draw(){
+      x.fillStyle='rgba(5,5,8,.1)';
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      
+      // Flowing lines
+      for(let i=0;i<12;i++){
+        const angle=(i/12)*Math.PI*2+time;
+        
+        x.beginPath();
+        for(let t=0;t<15;t++){
+          const r=t*15+(Math.sin(t*0.5+time+i)*10);
+          const a=angle+t*0.2;
+          const px=cx+Math.cos(a)*r;
+          const py=cy+Math.sin(a)*r;
+          
+          if(t===0)x.moveTo(px,py);
+          else x.lineTo(px,py);
+        }
+        
+        const gradient=x.createLinearGradient(cx,cy,cx+Math.cos(angle)*200,cy+Math.sin(angle)*200);
+        gradient.addColorStop(0,`hsla(${280+i*10},80%,60%,0.8)`);
+        gradient.addColorStop(1,'transparent');
+        x.strokeStyle=gradient;
+        x.lineWidth=2;
+        x.stroke();
+      }
+      
+      // Center
+      x.fillStyle='#fff';
+      x.font='14px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy);
+      
+      time+=0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    r();draw();
+  </script>
+</body>
+</html>
