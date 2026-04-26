@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Glitch</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#050508;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #title{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:80px;letter-spacing:20px;font-weight:bold;text-shadow:0 0 20px #f472b6,0 0 40px #c084fc,0 0 60px #818cf8}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="title">ZOE</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    const title=document.getElementById('title');
+    let w,h,time=0;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    function draw(){
+      x.fillStyle='rgba(5,5,8,.1)';
+      x.fillRect(0,0,w,h);
+      
+      // Random glitch rectangles
+      if(Math.random()<0.3){
+        const y=Math.random()*h;
+        const height=5+Math.random()*30;
+        x.fillStyle=`rgba(${Math.random()<0.5?167:248},${Math.random()<0.5?139:139},${Math.random()<0.5?250:216},0.5)`;
+        x.fillRect(0,y,w,height);
+      }
+      
+      // RGB shift
+      if(Math.random()<0.2){
+        const offset=(Math.random()-0.5)*20;
+        // Red channel offset
+        x.globalCompositeOperation='screen';
+        x.fillStyle='rgba(255,0,0,0.5)';
+        x.fillRect(0,0,w,h);
+        x.globalCompositeOperation='source-over';
+      }
+      
+      // Scanlines
+      x.fillStyle='rgba(0,0,0,0.1)';
+      for(let i=0;i<h;i+=4){
+        x.fillRect(0,i,w,1);
+      }
+      
+      // Title glitch
+      title.style.textShadow=`${Math.random()*40-20}px ${Math.random()*40-20}px ${Math.random()<0.5?'#f472b6':'#c084fc'}`;
+      title.style.letterSpacing=(20+Math.random()*20)+'px';
+      
+      time+=0.05;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    r();draw();
+  </script>
+</body>
+</html>

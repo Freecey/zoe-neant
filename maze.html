@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Maze</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#030306;overflow:hidden;font-family:'Courier New',monospace;display:flex;align-items:center;justify-content:center;height:100vh}
+    canvas{background:#0a0a12;border:2px solid #a78bfa}
+    #msg{position:fixed;top:20px;color:#fff;opacity:0.6;font-size:14px}
+  </style>
+</head>
+<body>
+  <div id="msg">ZOE MAZE — Flèches pour bouger</div>
+  <canvas id="c" width="600" height="600"></canvas>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    const w=600,h=600,cell=30;
+    let player={x:1,y:1};
+    let exit={x:18,y:18};
+    let maze=[];
+    
+    function generateMaze(){
+      // Recursive backtracker
+      maze=[];
+      for(let y=0;y<20;y++){
+        maze[y]=[];
+        for(let x=0;x<20;x++){
+          maze[y][x]=1;
+        }
+      }
+      
+      function carve(x,y){
+        maze[y][x]=0;
+        const dirs=[[0,-1],[1,0],[0,1],[-1,0]].sort(()=>Math.random()-0.5);
+        for(let [dx,dy] of dirs){
+          const nx=x+dx*2,ny=y+dy*2;
+          if(nx>0&&nx<19&&ny>0&&ny<19&&maze[ny][nx]===1){
+            maze[y+dy][x+dx]=0;
+            carve(nx,ny);
+          }
+        }
+      }
+      carve(1,1);
+      maze[18][18]=0;
+    }
+    
+    function draw(){
+      x.fillStyle='#0a0a12';
+      x.fillRect(0,0,w,h);
+      
+      // Maze
+      for(let y=0;y<20;y++){
+        for(let mx=0;mx<20;mx++){
+          if(maze[y][mx]===1){
+            x.fillStyle=`hsla(280,70%,30%,0.5)`;
+            x.fillRect(mx*cell,my*cell,cell,cell);
+          }
+        }
+      }
+      
+      // Exit
+      x.fillStyle='#4ade80';
+      x.fillRect(exit.x*cell,exit.y*cell,cell,cell);
+      
+      // Player
+      x.fillStyle='#f472b6';
+      x.beginPath();
+      x.arc(player.x*cell+cell/2,player.y*cell+cell/2,cell/2-2,0,Math.PI*2);
+      x.fill();
+      
+      // Glow
+      x.shadowColor='#f472b6';
+      x.shadowBlur=15;
+      x.fill();
+      x.shadowBlur=0;
+    }
+    
+    window.addEventListener('keydown',(e)=>{
+      let dx=0,dy=0;
+      if(e.key==='ArrowUp')dy=-1;
+      if(e.key==='ArrowDown')dy=1;
+      if(e.key==='ArrowLeft')dx=-1;
+      if(e.key==='ArrowRight')dx=1;
+      
+      if(dx||dy){
+        const nx=player.x+dx,ny=player.y+dy;
+        if(maze[ny]&&maze[ny][nx]===0){
+          player.x=nx;player.y=ny;
+        }
+      }
+      
+      if(player.x===exit.x&&player.y===exit.y){
+        document.getElementById('msg').textContent='ZOE A GAGNÉ! — Generer nouveau?';
+        generateMaze();
+        player={x:1,y:1};
+      }
+      draw();
+    });
+    
+    generateMaze();
+    draw();
+  </script>
+</body>
+</html>
