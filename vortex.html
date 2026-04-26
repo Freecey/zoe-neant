@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Vortex</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#030306;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    let mouseX=0,mouseY=0;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    function draw(){
+      x.fillStyle='rgba(3,3,6,.15)';
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      const mx=mouseX||cx,my=mouseY||cy;
+      
+      // Spiral vortex
+      for(let i=0;i<8;i++){
+        const arms=6+i;
+        const hue=280+i*10;
+        
+        for(let a=0;a<arms;a++){
+          const angleOffset=a*Math.PI*2/arms;
+          
+          for(let t=0;t<100;t++){
+            const progress=t/100;
+            const angle=angleOffset+progress*Math.PI*3-time*2;
+            const radius=10+progress*350;
+            
+            const px=cx+Math.cos(angle)*(radius*(mouseX?0.5:1));
+            const py=cy+Math.sin(angle)*(radius*(mouseX?0.5:1));
+            
+            // Mouse influence
+            const mdx=mx-px,mdy=my-py;
+            const mdist=Math.sqrt(mdx*mdx+mdy*mdy);
+            const minf=Math.max(0,500-mdist)/500;
+            
+            const alpha=(1-progress)*0.6*minf;
+            const size=(3-progress*2)*minf+1;
+            
+            if(alpha>0.01){
+              x.fillStyle=`hsla(${hue},70%,60%,${alpha})`;
+              x.beginPath();
+              x.arc(px,py,size,0,Math.PI*2);
+              x.fill();
+            }
+          }
+        }
+      }
+      
+      // Center
+      x.fillStyle='#fff';
+      x.font='16px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy);
+      x.font='10px Courier New';
+      x.fillStyle='rgba(255,255,255,.5)';
+      x.fillText('INTRÉPIDE',cx,cy+20);
+      
+      time+=0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('mousemove',(e)=>{mouseX=e.clientX;mouseY=e.clientY;});
+    r();draw();
+  </script>
+</body>
+</html>
