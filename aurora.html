@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Aurora</title>
+  <style>
+    *{margin:0;padding:0}
+    body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #ui{position:fixed;bottom:20px;left:20px;color:#fff;opacity:0.5;font-size:11px}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="ui">ZOE AURORA<br>Bougez la souris</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,mx=0,my=0,time=0;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    function draw(){
+      // Gradient background
+      const gradient=x.createLinearGradient(0,0,w,h);
+      gradient.addColorStop(0,'#0a0015');
+      gradient.addColorStop(0.5,'#1a0a2e');
+      gradient.addColorStop(1,'#0a0015');
+      x.fillStyle=gradient;
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      
+      // Aurora waves
+      for(let i=0;i<5;i++){
+        const y=cy+(i-2)*80;
+        const phase=i*0.5;
+        
+        x.beginPath();
+        for(let px=0;px<w;px+=5){
+          const wave1=Math.sin(px*0.01+time+phase)*30;
+          const wave2=Math.sin(px*0.02+time*1.5+phase)*20;
+          const mouseDist=Math.sqrt((px-mx)**2+(y-my)**2);
+          const mouseEffect=Math.max(0,200-mouseDist)/200*50;
+          
+          const yPos=y+wave1+wave2+mouseEffect;
+          
+          if(px===0){
+            x.moveTo(px,yPos);
+          }else{
+            x.lineTo(px,yPos);
+          }
+        }
+        
+        const gradient2=x.createLinearGradient(0,y-50,0,y+50);
+        gradient2.addColorStop(0,'transparent');
+        gradient2.addColorStop(0.5,`hsla(${280+i*20},70%,60%,0.3)`);
+        gradient2.addColorStop(1,'transparent');
+        x.strokeStyle=gradient2;
+        x.lineWidth=20;
+        x.stroke();
+      }
+      
+      // Stars
+      for(let i=0;i<50;i++){
+        const sx=(Math.sin(i*123.456+time*0.1)*0.5+0.5)*w;
+        const sy=(Math.cos(i*789.012+time*0.05)*0.5+0.5)*h;
+        const twinkle=Math.sin(time*3+i)*0.5+0.5;
+        
+        x.fillStyle=`rgba(255,255,255,${twinkle*0.8})`;
+        x.beginPath();
+        x.arc(sx,sy,twinkle*1.5,0,Math.PI*2);
+        x.fill();
+      }
+      
+      // Text
+      x.fillStyle='#fff';
+      x.font='16px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy-100);
+      x.font='10px Courier New';
+      x.fillStyle='rgba(255,255,255,.5)';
+      x.fillText('INTRÉPIDE',cx,cy-80);
+      
+      time+=0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('mousemove',(e)=>{mx=e.clientX;my=e.clientY;});
+    r();draw();
+  </script>
+</body>
+</html>

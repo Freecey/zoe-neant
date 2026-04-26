@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Spiral</title>
+  <style>
+    body{margin:0;background:#050508;overflow:hidden}
+    canvas{display:block}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    function draw(){
+      x.fillStyle='rgba(5,5,8,.15)';
+      x.fillRect(0,0,w,h);
+      
+      const cx=w/2,cy=h/2;
+      
+      // Multiple spirals
+      for(let s=0;s<6;s++){
+        const arms=4+s;
+        const hue=280+s*10;
+        
+        for(let a=0;a<arms;a++){
+          const angleOffset=a*Math.PI*2/arms;
+          
+          for(let i=0;i<80;i++){
+            const t=i/80;
+            const angle=angleOffset+t*Math.PI*4+time;
+            const radius=20+t*300;
+            
+            const px=cx+Math.cos(angle)*radius;
+            const py=cy+Math.sin(angle)*radius;
+            
+            const alpha=(1-t)*0.8;
+            const size=4-t*3;
+            
+            x.fillStyle=`hsla(${hue},70%,60%,${alpha})`;
+            x.beginPath();
+            x.arc(px,py,size,0,Math.PI*2);
+            x.fill();
+          }
+        }
+      }
+      
+      // Center
+      x.fillStyle='#fff';
+      x.font='14px Courier New';
+      x.textAlign='center';
+      x.fillText('ZOE',cx,cy);
+      x.font='10px Courier New';
+      x.fillStyle='rgba(255,255,255,.5)';
+      x.fillText('INTRÉPIDE',cx,cy+18);
+      
+      time+=0.005;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    r();draw();
+  </script>
+</body>
+</html>
