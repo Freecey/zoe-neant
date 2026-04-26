@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Wave</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #050508; 
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    canvas { display: block; }
+    #info {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      color: #a78bfa;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Souris = amplitude • Scroll = fréquence</div>
+  <script>
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    document.body.appendChild(canvas);
+    
+    let width, height;
+    let time = 0;
+    let mouseY = 0.5;
+    let scrollY = 0.5;
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    
+    function draw() {
+      // Dark background with slight trail
+      ctx.fillStyle = 'rgba(5, 5, 8, 0.15)';
+      ctx.fillRect(0, 0, width, height);
+      
+      const amplitude = mouseY * 150 + 20;
+      const frequency = scrollY * 0.03 + 0.005;
+      
+      // Draw multiple waves
+      for (let w = 0; w < 5; w++) {
+        ctx.beginPath();
+        ctx.strokeStyle = `hsla(${260 + w * 30}, 70%, 60%, ${0.8 - w * 0.15})`;
+        ctx.lineWidth = 2;
+        
+        const yOffset = height / 2 + (w - 2) * 40;
+        const phase = w * 0.5;
+        
+        for (let x = 0; x < width; x += 3) {
+          const y = yOffset + Math.sin(x * frequency + time + phase) * amplitude * (1 - Math.abs(w - 2) * 0.2);
+          
+          // Add secondary wave
+          const y2 = y + Math.sin(x * frequency * 2.5 + time * 1.5) * amplitude * 0.3;
+          
+          if (x === 0) {
+            ctx.moveTo(x, y2);
+          } else {
+            ctx.lineTo(x, y2);
+          }
+        }
+        ctx.stroke();
+        
+        // Glow effect
+        ctx.shadowColor = `hsla(${260 + w * 30}, 70%, 60%, 0.5)`;
+        ctx.shadowBlur = 15;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      
+      // Center label
+      ctx.fillStyle = '#a78bfa';
+      ctx.font = '14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('ZOE ✶ WAVE', width / 2, height - 40);
+      
+      time += 0.03;
+      requestAnimationFrame(draw);
+    }
+    
+    document.addEventListener('mousemove', (e) => {
+      mouseY = e.clientY / height;
+    });
+    
+    document.addEventListener('wheel', (e) => {
+      scrollY = Math.max(0.1, Math.min(1, scrollY + e.deltaY * -0.001));
+    });
+    
+    window.addEventListener('resize', resize);
+    resize();
+    draw();
+  </script>
+</body>
+</html>
