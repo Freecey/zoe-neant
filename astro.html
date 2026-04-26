@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Astro</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #000; 
+      overflow: hidden;
+    }
+    canvas { display: block; }
+    #text {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 24px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 2s;
+      text-shadow: 0 0 20px #a78bfa;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="text">LA ZOE INTRÉPIDE 💜</div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const text = document.getElementById('text');
+    
+    let width, height;
+    let stars = [];
+    let time = 0;
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      initStars();
+    }
+    
+    function initStars() {
+      stars = [];
+      for (let i = 0; i < 400; i++) {
+        stars.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          z: Math.random() * 2 + 0.5,
+          size: Math.random() * 1.5 + 0.5
+        });
+      }
+    }
+    
+    function draw() {
+      // Trail effect
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw stars
+      for (let star of stars) {
+        // Move towards center (warp speed effect)
+        const dx = (width / 2 - star.x) * 0.001 * star.z;
+        const dy = (height / 2 - star.y) * 0.001 * star.z;
+        
+        star.x += dx;
+        star.y += dy;
+        
+        // Reset if too close to center
+        const dist = Math.sqrt((star.x - width/2)**2 + (star.y - height/2)**2);
+        if (dist < 20) {
+          star.x = Math.random() * width;
+          star.y = Math.random() * height;
+        }
+        
+        // Color
+        const hue = 270 + Math.sin(time + star.x * 0.01) * 30;
+        ctx.fillStyle = `hsl(${hue}, 80%, 80%)`;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size * star.z, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Twinkle
+        if (Math.random() < 0.01) {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, star.size * star.z * 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      time += 0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    // Show text after 2 seconds
+    setTimeout(() => {
+      text.style.opacity = 1;
+    }, 2000);
+    
+    window.addEventListener('resize', resize);
+    resize();
+    draw();
+  </script>
+</body>
+</html>
