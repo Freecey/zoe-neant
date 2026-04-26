@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Particle Storm</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #0a0a12; 
+      overflow: hidden;
+    }
+    canvas { display: block; }
+    #title {
+      position: fixed;
+      top: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 28px;
+      letter-spacing: 8px;
+      text-transform: uppercase;
+      opacity: 0.8;
+      text-shadow: 0 0 30px #f472b6, 0 0 60px #f472b6;
+    }
+    #subtitle {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #f472b6;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      letter-spacing: 4px;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <div id="title">ZOE</div>
+  <div id="subtitle">particules intrépides</div>
+  <canvas id="canvas"></canvas>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let width, height;
+    let particles = [];
+    const numParticles = 800;
+    let mouseX, mouseY;
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    
+    class Particle {
+      constructor() {
+        this.reset();
+      }
+      
+      reset() {
+        this.x = Math.random() * width;
+        this.y = Math.random() * height;
+        this.vx = (Math.random() - 0.5) * 2;
+        this.vy = (Math.random() - 0.5) * 2;
+        this.size = Math.random() * 3 + 1;
+        this.hue = Math.random() * 60 + 280; // Pink to purple
+        this.life = Math.random() * 100 + 50;
+        this.maxLife = this.life;
+      }
+      
+      update() {
+        // Mouse attraction
+        const dx = mouseX - this.x;
+        const dy = mouseY - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 300) {
+          const force = (300 - dist) / 300;
+          this.vx += dx / dist * force * 0.5;
+          this.vy += dy / dist * force * 0.5;
+        }
+        
+        // Random movement
+        this.vx += (Math.random() - 0.5) * 0.2;
+        this.vy += (Math.random() - 0.5) * 0.2;
+        
+        // Damping
+        this.vx *= 0.99;
+        this.vy *= 0.99;
+        
+        // Speed limit
+        const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+        if (speed > 8) {
+          this.vx = (this.vx / speed) * 8;
+          this.vy = (this.vy / speed) * 8;
+        }
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        this.life--;
+        
+        // Wrap or reset
+        if (this.x < 0) this.x = width;
+        if (this.x > width) this.x = 0;
+        if (this.y < 0) this.y = height;
+        if (this.y > height) this.y = 0;
+        
+        if (this.life <= 0) this.reset();
+      }
+      
+      draw() {
+        const alpha = this.life / this.maxLife;
+        ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size * alpha + 1, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Glow
+        if (this.size > 2) {
+          ctx.shadowColor = `hsla(${this.hue}, 80%, 70%, 0.5)`;
+          ctx.shadowBlur = 15;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        
+        // Trail
+        ctx.strokeStyle = `hsla(${this.hue}, 80%, 70%, ${alpha * 0.3})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x - this.vx * 3, this.y - this.vy * 3);
+        ctx.stroke();
+      }
+    }
+    
+    function init() {
+      particles = [];
+      for (let i = 0; i < numParticles; i++) {
+        particles.push(new Particle());
+      }
+    }
+    
+    function draw() {
+      ctx.fillStyle = 'rgba(10, 10, 18, 0.15)';
+      ctx.fillRect(0, 0, width, height);
+      
+      for (let p of particles) {
+        p.update();
+        p.draw();
+      }
+      
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize', resize);
+    window.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+    
+    resize();
+    mouseX = width / 2;
+    mouseY = height / 2;
+    init();
+    draw();
+  </script>
+</body>
+</html>

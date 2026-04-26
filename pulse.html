@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Pulse</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #050508; 
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <script>
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    document.body.appendChild(canvas);
+    
+    let width, height;
+    let time = 0;
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    
+    function draw() {
+      ctx.fillStyle = 'rgba(5, 5, 8, 0.1)';
+      ctx.fillRect(0, 0, width, height);
+      
+      const centerX = width / 2;
+      const centerY = height / 2;
+      
+      // Multiple pulse rings
+      for (let i = 0; i < 8; i++) {
+        const phase = i * 0.8;
+        const pulse = Math.sin(time * 2 - phase) * 0.5 + 0.5;
+        const radius = 50 + pulse * 200 + i * 30;
+        const alpha = (1 - pulse) * 0.5;
+        
+        // Ring
+        ctx.strokeStyle = `hsla(${300 + i * 20}, 70%, 60%, ${alpha})`;
+        ctx.lineWidth = 2 + pulse * 3;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Glow
+        ctx.shadowColor = `hsla(${300 + i * 20}, 70%, 60%, 0.5)`;
+        ctx.shadowBlur = 20 + pulse * 30;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      
+      // Center heart/pulse
+      const heartPulse = Math.sin(time * 3) * 0.3 + 0.7;
+      const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 100 * heartPulse);
+      gradient.addColorStop(0, `hsla(320, 80%, 70%, 1)`);
+      gradient.addColorStop(0.5, `hsla(300, 80%, 60%, 0.5)`);
+      gradient.addColorStop(1, 'transparent');
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 100 * heartPulse, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Text
+      ctx.fillStyle = '#fff';
+      ctx.font = '14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('ZOE ✶', centerX, centerY + 8);
+      ctx.font = '10px Courier New';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText('INTREPIDE', centerX, centerY + 25);
+      
+      time += 0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+    draw();
+  </script>
+</body>
+</html>

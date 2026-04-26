@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Orbit</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #080810; 
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    canvas { display: block; }
+    #info {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="info">Souris: attracteur • Clic:脉冲• Double-clic: nouveau centre</div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let width, height;
+    let centerX, centerY;
+    let mouseX, mouseY;
+    let particles = [];
+    const numParticles = 150;
+    let time = 0;
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      centerX = width / 2;
+      centerY = height / 2;
+      mouseX = centerX;
+      mouseY = centerY;
+    }
+    
+    class Particle {
+      constructor() {
+        this.reset();
+      }
+      
+      reset() {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 50 + Math.random() * 150;
+        this.x = centerX + Math.cos(angle) * dist;
+        this.y = centerY + Math.sin(angle) * dist;
+        this.orbitRadius = dist;
+        this.orbitSpeed = (0.5 + Math.random() * 1.5) * (Math.random() < 0.5 ? 1 : -1);
+        this.orbitAngle = angle;
+        this.size = 2 + Math.random() * 4;
+        this.hue = Math.random() * 60 + 280;
+        this.trail = [];
+      }
+      
+      update() {
+        // Orbit around center
+        this.orbitAngle += this.orbitSpeed * 0.02;
+        
+        let targetX = centerX + Math.cos(this.orbitAngle) * this.orbitRadius;
+        let targetY = centerY + Math.sin(this.orbitAngle) * this.orbitRadius;
+        
+        // Mouse influence
+        const dx = mouseX - this.x;
+        const dy = mouseY - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 200) {
+          const force = (200 - dist) / 200;
+          targetX += dx * force * 0.3;
+          targetY += dy * force * 0.3;
+        }
+        
+        // Smooth follow
+        this.x += (targetX - this.x) * 0.05;
+        this.y += (targetY - this.y) * 0.05;
+        
+        // Trail
+        this.trail.push({x: this.x, y: this.y});
+        if (this.trail.length > 15) this.trail.shift();
+      }
+      
+      draw() {
+        // Trail
+        ctx.beginPath();
+        for (let i = 0; i < this.trail.length; i++) {
+          const t = this.trail[i];
+          const alpha = i / this.trail.length;
+          if (i === 0) {
+            ctx.moveTo(t.x, t.y);
+          } else {
+            ctx.lineTo(t.x, t.y);
+          }
+        }
+        ctx.strokeStyle = `hsla(${this.hue}, 70%, 60%, 0.3)`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        // Particle
+        ctx.fillStyle = `hsl(${this.hue}, 80%, 70%)`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Glow
+        ctx.shadowColor = `hsl(${this.hue}, 80%, 60%)`;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    
+    function init() {
+      particles = [];
+      for (let i = 0; i < numParticles; i++) {
+        particles.push(new Particle());
+      }
+    }
+    
+    function pulse() {
+      for (let p of particles) {
+        p.orbitRadius *= 1.5;
+      }
+      setTimeout(() => {
+        for (let p of particles) {
+          p.orbitRadius /= 1.5;
+        }
+      }, 300);
+    }
+    
+    function draw() {
+      ctx.fillStyle = 'rgba(8, 8, 16, 0.1)';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Center crosshair
+      ctx.strokeStyle = 'rgba(167, 139, 250, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(centerX - 20, centerY);
+      ctx.lineTo(centerX + 20, centerY);
+      ctx.moveTo(centerX, centerY - 20);
+      ctx.lineTo(centerX, centerY + 20);
+      ctx.stroke();
+      
+      for (let p of particles) {
+        p.update();
+        p.draw();
+      }
+      
+      time += 0.01;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize', resize);
+    window.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+    window.addEventListener('click', pulse);
+    window.addEventListener('dblclick', () => {
+      centerX = mouseX;
+      centerY = mouseY;
+      for (let p of particles) {
+        p.orbitRadius = 50 + Math.random() * 150;
+        p.orbitAngle = Math.atan2(p.y - centerY, p.x - centerX);
+      }
+    });
+    
+    resize();
+    init();
+    draw();
+  </script>
+</body>
+</html>
