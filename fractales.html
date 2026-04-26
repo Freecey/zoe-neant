@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Fractales</title>
+  <style>
+    body { 
+      margin: 0; 
+      background: #080810; 
+      overflow: hidden;
+    }
+    canvas { display: block; }
+    #info {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #f472b6;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Clic = nouveau motif • Scroll = zoom</div>
+  <script>
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    document.body.appendChild(canvas);
+    
+    let width, height;
+    let time = 0;
+    let zoom = 1;
+    let centerX = 0, centerY = 0;
+    let seeds = [];
+    
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      centerX = width / 2;
+      centerY = height / 2;
+    }
+    
+    function initSeeds() {
+      seeds = [];
+      for (let i = 0; i < 6; i++) {
+        seeds.push({
+          angle: (Math.PI * 2 / 6) * i,
+          length: 100 + Math.random() * 50,
+          speed: 0.5 + Math.random() * 0.5
+        });
+      }
+    }
+    
+    function draw() {
+      ctx.fillStyle = 'rgba(8, 8, 16, 0.1)';
+      ctx.fillRect(0, 0, width, height);
+      
+      const baseLen = 80 * zoom;
+      
+      // Draw recursive branches
+      drawBranch(centerX, centerY, baseLen, -Math.PI / 2, 5, 0);
+      
+      time += 0.01;
+      zoom *= 0.999; // Slowly zoom out
+      
+      requestAnimationFrame(draw);
+    }
+    
+    function drawBranch(x, y, len, angle, depth, seedIndex) {
+      if (depth === 0 || len < 5) return;
+      
+      const seed = seeds[seedIndex % seeds.length];
+      const angleOffset = Math.sin(time * seed.speed + seedIndex) * 0.3;
+      
+      const x2 = x + Math.cos(angle + angleOffset) * len;
+      const y2 = y + Math.sin(angle + angleOffset) * len;
+      
+      // Color based on depth
+      const hue = 280 + depth * 20 + seedIndex * 10;
+      ctx.strokeStyle = `hsla(${hue % 360}, 70%, ${50 + depth * 8}%, ${depth / 5})`;
+      ctx.lineWidth = depth;
+      ctx.lineCap = 'round';
+      
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      
+      // Glow
+      ctx.shadowColor = `hsla(${hue % 360}, 70%, 60%, 0.5)`;
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      
+      // Recursive branches
+      const newLen = len * 0.67;
+      drawBranch(x2, y2, newLen, angle - 0.5 + angleOffset * 0.2, depth - 1, seedIndex + 1);
+      drawBranch(x2, y2, newLen, angle + 0.5 + angleOffset * 0.2, depth - 1, seedIndex + 2);
+    }
+    
+    document.addEventListener('click', (e) => {
+      centerX = e.clientX;
+      centerY = e.clientY;
+      zoom = 1 + Math.random();
+      initSeeds();
+    });
+    
+    document.addEventListener('wheel', (e) => {
+      zoom = Math.max(0.2, Math.min(3, zoom + e.deltaY * -0.001));
+    });
+    
+    window.addEventListener('resize', resize);
+    resize();
+    initSeeds();
+    draw();
+  </script>
+</body>
+</html>
