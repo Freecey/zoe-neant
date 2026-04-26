@@ -44,7 +44,18 @@
         }
       }
       carve(1,1);
-      maze[18][18]=0;
+      
+      // Find reachable exit (not a wall)
+      let attempts=0;
+      while(attempts<100){
+        const ex=Math.floor(Math.random()*18)+1;
+        const ey=Math.floor(Math.random()*18)+1;
+        if(maze[ey][ex]===0 && (ex!==1 || ey!==1)){
+          exit={x:ex,y:ey};
+          break;
+        }
+        attempts++;
+      }
     }
     
     function draw(){
