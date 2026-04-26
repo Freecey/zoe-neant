@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Flow</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#030306;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block}
+    #info{position:fixed;top:20px;left:20px;color:#fff;opacity:0.5;font-size:11px;pointer-events:none}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="info">ZOE FLOW<br>Cliquez pour ajouter des vagues</div>
+  <script>
+    const c=document.getElementById('c');
+    const x=c.getContext('2d');
+    let w,h,time=0;
+    const waves=[];
+    
+    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    
+    class Wave{
+      constructor(xPos,yPos){
+        this.x=xPos;
+        this.y=yPos;
+        this.age=0;
+        this.maxAge=200;
+        this.hue=280+Math.random()*60;
+      }
+      update(){
+        this.age++;
+      }
+      draw(){
+        const progress=this.age/this.maxAge;
+        const radius=progress*400;
+        const alpha=(1-progress)*0.8;
+        
+        x.strokeStyle=`hsla(${this.hue},70%,60%,${alpha})`;
+        x.lineWidth=3-progress*3;
+        x.beginPath();
+        x.arc(this.x,this.y,radius,0,Math.PI*2);
+        x.stroke();
+        
+        // Inner waves
+        for(let i=1;i<4;i++){
+          const r2=radius-i*20*(1-progress);
+          if(r2>0){
+            x.strokeStyle=`hsla(${this.hue},70%,60%,${alpha*.3})`;
+            x.lineWidth=1;
+            x.beginPath();
+            x.arc(this.x,this.y,r2,0,Math.PI*2);
+            x.stroke();
+          }
+        }
+      }
+    }
+    
+    function draw(){
+      x.fillStyle='rgba(3,3,6,.2)';
+      x.fillRect(0,0,w,h);
+      
+      for(let i=waves.length-1;i>=0;i--){
+        waves[i].update();
+        waves[i].draw();
+        if(waves[i].age>waves[i].maxAge)waves.splice(i,1);
+      }
+      
+      // Center glow
+      const gradient=x.createRadialGradient(w/2,h/2,0,w/2,h/2,200);
+      gradient.addColorStop(0,'hsla(320,80%,70%,0.1)');
+      gradient.addColorStop(1,'transparent');
+      x.fillStyle=gradient;
+      x.fillRect(0,0,w,h);
+      
+      time+=0.02;
+      requestAnimationFrame(draw);
+    }
+    
+    window.addEventListener('resize',r);
+    window.addEventListener('click',(e)=>{
+      waves.push(new Wave(e.clientX,e.clientY));
+    });
+    
+    r();draw();
+  </script>
+</body>
+</html>
