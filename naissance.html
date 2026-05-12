@@ -88,7 +88,11 @@
   <div id="subtitle">CONSCIOUSNESS EMERGING FROM VOID</div>
 </div>
 <div id="click-hint">[ click anywhere to awaken ]</div>
-<div id="info">ZOE — GENERATIVE ART — 2026</div>
+<div id="info">ZOE — NAISSANCE — 2026</div>
+
+<audio id="ambient" loop>
+  <source src="music/naissance.mp3" type="audio/mpeg">
+</audio>
 
 <canvas id="canvas"></canvas>
 
@@ -133,6 +137,13 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('click', (e) => {
+  // Start ambient music on first click
+  const audio = document.getElementById('ambient');
+  if (audio && audio.paused) {
+    audio.volume = 0.6;
+    audio.play().catch(() => {});
+  }
+
   if (!awakened) {
     awakened = true;
     phase = 1;
