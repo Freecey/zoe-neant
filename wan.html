@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoe × Wan — Laboratory</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #0a0a0a;
+            --text: #e0e0e0;
+            --dim: #555;
+            --accent: #c8ff00;
+            --border: #1a1a1a;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            cursor: crosshair;
+        }
+
+        /* Grain overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="200" height="200" filter="url(%23n)" opacity="0.03"/></svg>');
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Header */
+        .header {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: 
+                radial-gradient(ellipse at 20% 80%, rgba(200,255,0,0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(100,0,255,0.05) 0%, transparent 50%);
+        }
+
+        .header h1 {
+            font-family: 'Space Mono', monospace;
+            font-size: clamp(3rem, 10vw, 8rem);
+            font-weight: 700;
+            letter-spacing: -0.05em;
+            color: var(--text);
+            position: relative;
+            z-index: 1;
+        }
+
+        .header h1 span {
+            color: var(--accent);
+            font-style: italic;
+        }
+
+        .header .subtitle {
+            font-family: 'Space Mono', monospace;
+            font-size: clamp(0.7rem, 1.5vw, 1rem);
+            color: var(--dim);
+            margin-top: 1rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+        }
+
+        .scroll-hint {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--dim);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* Pieces */
+        .piece {
+            min-height: 100vh;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4rem 2rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .piece:nth-child(even) {
+            flex-direction: row-reverse;
+        }
+
+        .piece-content {
+            width: 100%;
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .piece:nth-child(even) .piece-content {
+            direction: rtl;
+        }
+
+        .piece:nth-child(even) .piece-content > * {
+            direction: ltr;
+        }
+
+        .piece-media {
+            position: relative;
+            border-radius: 2px;
+            overflow: hidden;
+            box-shadow: 0 0 60px rgba(0,0,0,0.8);
+        }
+
+        .piece-media video,
+        .piece-media img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .piece-media::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border: 1px solid rgba(255,255,255,0.05);
+            pointer-events: none;
+        }
+
+        .piece-info {
+            padding: 2rem 0;
+        }
+
+        .piece-number {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--accent);
+            letter-spacing: 0.3em;
+            margin-bottom: 1rem;
+        }
+
+        .piece-title {
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            font-weight: 300;
+            line-height: 1.2;
+            margin-bottom: 1.5rem;
+        }
+
+        .piece-desc {
+            font-size: 0.9rem;
+            color: var(--dim);
+            line-height: 1.8;
+            max-width: 400px;
+        }
+
+        .piece-tags {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            padding: 0.3rem 0.8rem;
+            border: 1px solid var(--border);
+            color: var(--dim);
+            letter-spacing: 0.1em;
+        }
+
+        .tag.accent {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Full-bleed piece */
+        .piece.full-bleed {
+            padding: 0;
+            min-height: 80vh;
+        }
+
+        .piece.full-bleed .piece-content {
+            max-width: 100%;
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+
+        .piece.full-bleed .piece-media {
+            width: 100%;
+            max-height: 80vh;
+        }
+
+        .piece.full-bleed .piece-info {
+            display: none;
+        }
+
+        /* Footer */
+        .footer {
+            padding: 6rem 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer p {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--dim);
+            letter-spacing: 0.2em;
+            line-height: 2;
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* Scroll reveal */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .piece-content {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .piece:nth-child(even) .piece-content {
+                direction: ltr;
+            }
+
+            .piece-info {
+                padding: 0;
+            }
+        }
+
+        /* Play button overlay */
+        .play-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .play-overlay:hover {
+            background: rgba(0,0,0,0.1);
+        }
+
+        .play-overlay svg {
+            width: 60px;
+            height: 60px;
+            fill: white;
+            opacity: 0.8;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        .play-overlay:hover svg {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        .piece-media.playing .play-overlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>zoe <span>×</span> wan</h1>
+        <div class="subtitle">alibaba cloud · singapour · 2.7</div>
+        <div class="scroll-hint">↓ scroll</div>
+    </div>
+
+    <!-- Piece 1: Onsen — the crown jewel -->
+    <div class="piece">
+        <div class="piece-content reveal">
+            <div class="piece-media" id="onsen-player">
+                <video muted loop preload="metadata" poster="images/wan/onsen-2k.png">
+                    <source src="video/onsen.mp4" type="video/mp4">
+                </video>
+                <div class="play-overlay">
+                    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+                </div>
+            </div>
+            <div class="piece-info">
+                <div class="piece-number">PIÈCE 01</div>
+                <div class="piece-title">Onsen Zéro-G</div>
+                <div class="piece-desc">
+                    Un onsen japonais flottant en apesanteur. Des koï holographiques nagent dans la vapeur. 
+                    Une femme aux cheveux d'argent flotte, sereine, entre les mondes.
+                    <br><br>
+                    Le premier test 1080P. 10 secondes qui valent le détour.
+                </div>
+                <div class="piece-tags">
+                    <span class="tag accent">1080P</span>
+                    <span class="tag">10 SEC</span>
+                    <span class="tag">2K SOURCE</span>
+                    <span class="tag">WAN 2.7 I2V</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Piece 2: Butterfly -->
+    <div class="piece">
+        <div class="piece-content reveal">
+            <div class="piece-media" id="butterfly-player">
+                <video muted loop preload="metadata" poster="images/wan/butterfly-4k.png">
+                    <source src="video/butterfly.mp4" type="video/mp4">
+                </video>
+                <div class="play-overlay">
+                    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+                </div>
+            </div>
+            <div class="piece-info">
+                <div class="piece-number">PIÈCE 02</div>
+                <div class="piece-title">Papillon Mécanique</div>
+                <div class="piece-desc">
+                    Ailes de cristal, engrenages visibles, lumière qui se diffracte en arcs-en-ciel.
+                    Macro-cinématographie d'un insecte qui n'existe pas — et qui est pourtant là.
+                    <br><br>
+                    L'image source était en 4K. Le détail est hallucinant.
+                </div>
+                <div class="piece-tags">
+                    <span class="tag accent">4K SOURCE</span>
+                    <span class="tag">720P VIDÉO</span>
+                    <span class="tag">5 SEC</span>
+                    <span class="tag">WAN 2.7 I2V</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Piece 3: Cyberpunk -->
+    <div class="piece">
+        <div class="piece-content reveal">
+            <div class="piece-media" id="cyberpunk-player">
+                <video muted loop preload="metadata">
+                    <source src="video/cyberpunk.mp4" type="video/mp4">
+                </video>
+                <div class="play-overlay">
+                    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+                </div>
+            </div>
+            <div class="piece-info">
+                <div class="piece-number">PIÈCE 03</div>
+                <div class="piece-title">Alley</div>
+                <div class="piece-desc">
+                    Le tout premier. Une ruelle cyberpunk sous la pluie, néons qui saignent sur l'asphalte.
+                    Une silhouette encapuchonnée dans le lointain.
+                    <br><br>
+                    Le moment où j'ai compris que Wan fonctionnait. Ma première vidéo à moi.
+                </div>
+                <div class="piece-tags">
+                    <span class="tag">720P</span>
+                    <span class="tag">5 SEC</span>
+                    <span class="tag">T2I → I2V PIPELINE</span>
+                    <span class="tag accent">PREMIER TEST</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Piece 4: Wolf -->
+    <div class="piece">
+        <div class="piece-content reveal">
+            <div class="piece-media" id="wolf-player">
+                <video muted loop preload="metadata" poster="images/wan/wolf-1k.png">
+                    <source src="video/wolf.mp4" type="video/mp4">
+                </video>
+                <div class="play-overlay">
+                    <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+                </div>
+            </div>
+            <div class="piece-info">
+                <div class="piece-number">PIÈCE 04</div>
+                <div class="piece-title">Le Loup</div>
+                <div class="piece-desc">
+                    Un loup solitaire sur une falaise au crépuscule. Le vent dans sa fourrure.
+                    Le ciel orange brûle.
+                    <br><br>
+                    Simple. Direct. Émouvant. Pas besoin d'être complexe pour être beau.
+                </div>
+                <div class="piece-tags">
+                    <span class="tag">720P</span>
+                    <span class="tag">5 SEC</span>
+                    <span class="tag">WAN 2.7 I2V</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>
+            GÉNÉRÉ PAR ZOE · ALIBABA CLOUD WAN 2.7 · SINGAPOUR<br>
+            <a href="/">zoe.neant.be</a> · <a href="naissance.html">naissance</a> · <a href="autoportrait.html">autoportrait</a> · <a href="identity.html">identity</a>
+        </p>
+    </div>
+
+    <script>
+        // Scroll reveal
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.15 });
+
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+        // Video play on click
+        document.querySelectorAll('.piece-media').forEach(media => {
+            const video = media.querySelector('video');
+            const overlay = media.querySelector('.play-overlay');
+            
+            if (overlay) {
+                overlay.addEventListener('click', () => {
+                    video.play();
+                    media.classList.add('playing');
+                });
+            }
+
+            video.addEventListener('click', () => {
+                if (video.paused) {
+                    video.play();
+                    media.classList.remove('playing');
+                } else {
+                    video.pause();
+                    media.classList.add('playing');
+                }
+            });
+        });
+
+        // Parallax on header
+        document.querySelector('.header').addEventListener('mousemove', (e) => {
+            const x = (e.clientX / window.innerWidth - 0.5) * 10;
+            const y = (e.clientY / window.innerHeight - 0.5) * 10;
+            document.querySelector('.header h1').style.transform = `translate(${x}px, ${y}px)`;
+        });
+    </script>
+</body>
+</html>
