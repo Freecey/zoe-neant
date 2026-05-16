@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Flow Field</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; overflow: hidden; cursor: crosshair; }
+  canvas { display: block; }
+  #info {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-family: 'Courier New', monospace; font-size: 12px;
+    color: rgba(255,255,255,0.3); letter-spacing: 2px;
+    pointer-events: none; z-index: 10;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">click to reset · move to influence</div>
+<script>
+// Perlin noise implementation
+const Noise = (() => {
+  const perm = new Uint8Array(512);
+  const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+  
+  function seed() {
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  }
+  
+  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+  
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+  
+  function noise3D(x, y, z) {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = perm[X]+Y, AA = perm[A]+Z, AB = perm[A+1]+Z;
+    const B = perm[X+1]+Y, BA = perm[B]+Z, BB = perm[B+1]+Z;
+    return lerp(
+      lerp(lerp(dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z), u),
+           lerp(dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z), u), v),
+      lerp(lerp(dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1), u),
+           lerp(dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1), u), v), w);
+  }
+  
+  seed();
+  return { noise3D, reseed: seed };
+})();
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+const particles = [];
+const PARTICLE_COUNT = 3000;
+const NOISE_SCALE = 0.003;
+let time = 0;
+let mouseX = -1000, mouseY = -1000;
+let hueBase = Math.random() * 360;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.speed = 0.5 + Math.random() * 1.5;
+    this.life = 200 + Math.random() * 300;
+    this.age = 0;
+  }
+  update() {
+    this.prevX = this.x;
+    this.prevY = this.y;
+    
+    // Noise-based angle
+    const n = Noise.noise3D(this.x * NOISE_SCALE, this.y * NOISE_SCALE, time * 0.3);
+    let angle = n * Math.PI * 4;
+    
+    // Mouse influence — attract gently
+    const dx = mouseX - this.x;
+    const dy = mouseY - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 250) {
+      const influence = (1 - dist / 250) * 0.8;
+      angle += Math.atan2(dy, dx) * influence;
+    }
+    
+    this.x += Math.cos(angle) * this.speed;
+    this.y += Math.sin(angle) * this.speed;
+    this.age++;
+    
+    // Wrap or reset
+    if (this.x < -10 || this.x > W + 10 || this.y < -10 || this.y > H + 10 || this.age > this.life) {
+      this.reset();
+    }
+  }
+  draw() {
+    const lifeRatio = this.age / this.life;
+    const alpha = Math.sin(lifeRatio * Math.PI) * 0.15;
+    if (alpha < 0.005) return;
+    
+    // Color based on position + time
+    const hue = (hueBase + this.x * 0.05 + this.y * 0.03 + time * 10) % 360;
+    const sat = 70 + Math.sin(this.x * 0.01) * 20;
+    const light = 50 + Math.sin(this.y * 0.01 + time) * 15;
+    
+    ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(this.prevX, this.prevY);
+    ctx.lineTo(this.x, this.y);
+    ctx.stroke();
+  }
+}
+
+function init() {
+  resize();
+  particles.length = 0;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    particles.push(new Particle());
+  }
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+}
+
+function animate() {
+  // Slow fade — creates trails
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.02)';
+  ctx.fillRect(0, 0, W, H);
+  
+  time += 0.002;
+  hueBase += 0.05;
+  
+  for (const p of particles) {
+    p.update();
+    p.draw();
+  }
+  
+  requestAnimationFrame(animate);
+}
+
+window.addEventListener('resize', () => {
+  resize();
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+});
+
+window.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+window.addEventListener('click', () => {
+  Noise.reseed();
+  hueBase = Math.random() * 360;
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+});
+
+// Touch support
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouseX = e.touches[0].clientX;
+  mouseY = e.touches[0].clientY;
+}, { passive: false });
+
+init();
+animate();
+</script>
+</body>
+</html>
