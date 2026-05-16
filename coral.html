@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coral — Generative Growth</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a12;
+  overflow: hidden;
+  cursor: crosshair;
+  font-family: 'Courier New', monospace;
+}
+canvas { display: block; }
+#info {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255,180,120,0.4);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">click to plant · move to shape</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Coral palette
+const PALETTES = [
+  { h: 10, s: 80, l: 60 },    // warm coral
+  { h: 25, s: 90, l: 55 },    // amber
+  { h: 175, s: 70, l: 50 },   // turquoise
+  { h: 350, s: 75, l: 55 },   // rose
+  { h: 45, s: 85, l: 50 },    // gold
+  { h: 190, s: 60, l: 45 },   // deep sea
+];
+
+function pickColor() {
+  const p = PALETTES[Math.floor(Math.random() * PALETTES.length)];
+  const hShift = (Math.random() - 0.5) * 20;
+  const sShift = (Math.random() - 0.5) * 10;
+  return {
+    h: p.h + hShift,
+    s: p.s + sShift,
+    l: p.l + (Math.random() - 0.5) * 10
+  };
+}
+
+function hslStr(c, a = 1) {
+  return `hsla(${c.h}, ${c.s}%, ${c.l}%, ${a})`;
+}
+
+let mouse = { x: W / 2, y: H / 2 };
+let branches = [];
+let spores = [];
+let time = 0;
+
+class Branch {
+  constructor(x, y, angle, len, depth, color, width) {
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.len = len;
+    this.depth = depth;
+    this.color = color;
+    this.width = width;
+    this.grow = 0; // 0 → 1 growth animation
+    this.speed = 0.008 + Math.random() * 0.015;
+    this.children = [];
+    this.spawned = false;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.01 + Math.random() * 0.02;
+    this.curvature = (Math.random() - 0.5) * 0.3;
+  }
+
+  update() {
+    if (this.grow < 1) {
+      this.grow = Math.min(1, this.grow + this.speed);
+    }
+
+    this.wobble += this.wobbleSpeed;
+
+    // Spawn children when fully grown
+    if (this.grow >= 1 && !this.spawned && this.depth > 0) {
+      this.spawned = true;
+      const numChildren = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < numChildren; i++) {
+        const spreadAngle = (Math.random() - 0.5) * 1.2;
+        const childAngle = this.angle + spreadAngle + this.curvature;
+        const childLen = this.len * (0.6 + Math.random() * 0.2);
+        const childWidth = this.width * 0.65;
+
+        // Color mutation
+        const childColor = {
+          h: this.color.h + (Math.random() - 0.5) * 8,
+          s: this.color.s + (Math.random() - 0.5) * 5,
+          l: this.color.l + Math.random() * 3
+        };
+
+        const tipX = this.getEndX();
+        const tipY = this.getEndY();
+
+        setTimeout(() => {
+          this.children.push(new Branch(
+            tipX, tipY, childAngle, childLen,
+            this.depth - 1, childColor, childWidth
+          ));
+          branches.push(this.children[this.children.length - 1]);
+        }, 100 + Math.random() * 400);
+      }
+
+      // Sometimes spawn a spore (floating particle)
+      if (Math.random() < 0.3) {
+        const tipX = this.getEndX();
+        const tipY = this.getEndY();
+        spores.push(new Spore(tipX, tipY, this.color));
+      }
+    }
+  }
+
+  getEndX() {
+    const wobbleOffset = Math.sin(this.wobble) * 2;
+    return this.x + Math.cos(this.angle + wobbleOffset * 0.01) * this.len * this.grow;
+  }
+
+  getEndY() {
+    const wobbleOffset = Math.sin(this.wobble) * 2;
+    return this.y + Math.sin(this.angle + wobbleOffset * 0.01) * this.len * this.grow;
+  }
+
+  draw() {
+    const g = this.grow;
+    if (g <= 0) return;
+
+    const wobbleOffset = Math.sin(this.wobble) * 2 * (1 - this.depth * 0.05);
+
+    // Draw curved branch
+    const endX = this.getEndX();
+    const endY = this.getEndY();
+
+    const cpX = (this.x + endX) / 2 + Math.sin(this.angle + this.curvature) * this.len * 0.2;
+    const cpY = (this.y + endY) / 2 + Math.cos(this.angle + this.curvature) * this.len * 0.2;
+
+    ctx.beginPath();
+    ctx.moveTo(this.x, this.y);
+    ctx.quadraticCurveTo(cpX, cpY, endX, endY);
+
+    const alpha = 0.3 + 0.5 * g;
+    ctx.strokeStyle = hslStr(this.color, alpha);
+    ctx.lineWidth = Math.max(0.5, this.width * g);
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Glow at tip while growing
+    if (g < 1) {
+      ctx.beginPath();
+      ctx.arc(endX, endY, this.width * 2, 0, Math.PI * 2);
+      ctx.fillStyle = hslStr({ ...this.color, l: this.color.l + 20 }, 0.3);
+      ctx.fill();
+    }
+
+    // Draw polyp at tip when grown (terminal branches)
+    if (g >= 1 && this.depth <= 1) {
+      const pulseSize = 2 + Math.sin(time * 0.03 + this.wobble) * 1;
+      ctx.beginPath();
+      ctx.arc(endX, endY, pulseSize, 0, Math.PI * 2);
+      ctx.fillStyle = hslStr({ ...this.color, l: this.color.l + 15 }, 0.6);
+      ctx.fill();
+    }
+  }
+}
+
+class Spore {
+  constructor(x, y, color) {
+    this.x = x;
+    this.y = y;
+    this.color = { ...color, l: color.l + 10 };
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = -0.2 - Math.random() * 0.5;
+    this.life = 1;
+    this.decay = 0.002 + Math.random() * 0.003;
+    this.size = 1 + Math.random() * 2;
+  }
+
+  update() {
+    this.x += this.vx + Math.sin(time * 0.02 + this.x * 0.01) * 0.2;
+    this.y += this.vy;
+    this.life -= this.decay;
+
+    // Mouse influence
+    const dx = mouse.x - this.x;
+    const dy = mouse.y - this.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 150) {
+      this.vx += dx * 0.00005;
+      this.vy += dy * 0.00005;
+    }
+  }
+
+  draw() {
+    if (this.life <= 0) return;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = hslStr(this.color, this.life * 0.5);
+    ctx.fill();
+  }
+}
+
+function plantCoral(x, y) {
+  const numRoots = 1 + Math.floor(Math.random() * 3);
+  const baseColor = pickColor();
+
+  for (let i = 0; i < numRoots; i++) {
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.0;
+    const len = 40 + Math.random() * 60;
+    const depth = 4 + Math.floor(Math.random() * 3);
+    const width = 3 + Math.random() * 3;
+
+    const color = {
+      h: baseColor.h + (Math.random() - 0.5) * 15,
+      s: baseColor.s + (Math.random() - 0.5) * 10,
+      l: baseColor.l + (Math.random() - 0.5) * 8
+    };
+
+    const branch = new Branch(x, y, angle, len, depth, color, width);
+    branches.push(branch);
+  }
+}
+
+// Background deep sea particles
+const bgParticles = [];
+for (let i = 0; i < 60; i++) {
+  bgParticles.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    size: Math.random() * 1.5,
+    speed: 0.1 + Math.random() * 0.3,
+    alpha: 0.1 + Math.random() * 0.15
+  });
+}
+
+function drawBg() {
+  bgParticles.forEach(p => {
+    p.y -= p.speed;
+    p.x += Math.sin(time * 0.01 + p.y * 0.01) * 0.3;
+    if (p.y < -10) { p.y = H + 10; p.x = Math.random() * W; }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(100, 200, 220, ${p.alpha})`;
+    ctx.fill();
+  });
+}
+
+// Ambient light caustics
+function drawCaustics() {
+  const numCaustics = 3;
+  for (let i = 0; i < numCaustics; i++) {
+    const x = W * 0.2 + Math.sin(time * 0.005 + i * 2) * W * 0.3;
+    const y = H * 0.3 + Math.cos(time * 0.007 + i * 3) * H * 0.2;
+    const r = 80 + Math.sin(time * 0.01 + i) * 30;
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gradient.addColorStop(0, `rgba(40, 120, 140, 0.015)`);
+    gradient.addColorStop(1, `rgba(40, 120, 140, 0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+}
+
+// Initial planting
+plantCoral(W * 0.3, H * 0.85);
+plantCoral(W * 0.5, H * 0.9);
+plantCoral(W * 0.7, H * 0.87);
+
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+canvas.addEventListener('click', e => {
+  plantCoral(e.clientX, e.clientY);
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  plantCoral(t.clientX, t.clientY);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+});
+
+function animate() {
+  time++;
+
+  // Soft fade for trails
+  ctx.fillStyle = 'rgba(10, 10, 18, 0.06)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawCaustics();
+  drawBg();
+
+  // Update & draw branches
+  branches.forEach(b => {
+    b.update();
+    b.draw();
+  });
+
+  // Update & draw spores
+  spores.forEach(s => {
+    s.update();
+    s.draw();
+  });
+
+  // Clean dead spores
+  spores = spores.filter(s => s.life > 0);
+
+  // Limit total branches for perf
+  if (branches.length > 3000) {
+    branches = branches.slice(-2000);
+  }
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
