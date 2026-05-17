@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mycelium ✶</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #020a05;
+  overflow: hidden;
+  cursor: none;
+  font-family: monospace;
+}
+canvas { display: block; }
+#cursor {
+  position: fixed;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 255, 120, 0.4);
+  pointer-events: none;
+  z-index: 999;
+  transform: translate(-50%, -50%);
+  transition: width 0.3s, height 0.3s, border-color 0.3s;
+}
+#info {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(0, 255, 120, 0.25);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  animation: fadeIn 3s ease 2s forwards;
+}
+@keyframes fadeIn { to { opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="info">click to reseed · move to attract</div>
+<canvas id="c"></canvas>
+
+<script>
+// ─── Simplex-like noise (self-contained) ───
+const Noise = (() => {
+  const perm = new Uint8Array(512);
+  const grad3 = [
+    [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+    [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+    [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+  ];
+  let seed = Math.random() * 65536;
+
+  function init(s) {
+    seed = s || Math.random() * 65536;
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    // Fisher-Yates with seed
+    let rng = seed;
+    for (let i = 255; i > 0; i--) {
+      rng = (rng * 16807 + 0) % 2147483647;
+      const j = rng % (i + 1);
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  }
+
+  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+
+  function noise3D(x, y, z) {
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    const Z = Math.floor(z) & 255;
+    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A  = perm[X] + Y,     AA = perm[A] + Z,   AB = perm[A+1] + Z;
+    const B  = perm[X+1] + Y,   BA = perm[B] + Z,   BB = perm[B+1] + Z;
+    return lerp(w,
+      lerp(v, lerp(u, dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z)),
+               lerp(u, dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z))),
+      lerp(v, lerp(u, dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1)),
+               lerp(u, dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1)))
+    );
+  }
+
+  function fade(t) { return t*t*t*(t*(t*6-15)+10); }
+  function lerp(t,a,b) { return a + t*(b - a); }
+
+  init();
+  return { noise3D, init, reseed: () => init() };
+})();
+
+// ─── Config ───
+const NUM_PARTICLES = 4000;
+const NOISE_SCALE = 0.0025;
+const SPEED_BASE = 1.2;
+const FADE_ALPHA = 0.015;    // lower = longer trails
+const MOUSE_RADIUS = 200;
+const MOUSE_STRENGTH = 0.8;
+
+// ─── Palette: bioluminescent greens + cyan ───
+function particleColor(i) {
+  const hues = [140, 155, 165, 175, 130]; // green-cyan range
+  const hue = hues[i % hues.length] + (Math.random() - 0.5) * 15;
+  const sat = 70 + Math.random() * 30;
+  const light = 40 + Math.random() * 30;
+  return { hue, sat, light };
+}
+
+// ─── Canvas setup ───
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  // Fill black on resize to avoid artifacts
+  ctx.fillStyle = '#020a05';
+  ctx.fillRect(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Mouse ───
+let mx = W / 2, my = H / 2;
+let mouseActive = false;
+const cursor = document.getElementById('cursor');
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX;
+  my = e.clientY;
+  mouseActive = true;
+  cursor.style.left = mx + 'px';
+  cursor.style.top = my + 'px';
+});
+
+document.addEventListener('click', () => {
+  Noise.reseed();
+  // Flash effect
+  ctx.fillStyle = 'rgba(0, 255, 120, 0.03)';
+  ctx.fillRect(0, 0, W, H);
+});
+
+// ─── Particles ───
+class Particle {
+  constructor() {
+    this.reset();
+    const c = particleColor(Math.random() * 5 | 0);
+    this.hue = c.hue;
+    this.sat = c.sat;
+    this.light = c.light;
+    this.alpha = 0.4 + Math.random() * 0.4;
+    this.speed = SPEED_BASE * (0.6 + Math.random() * 0.8);
+    this.size = 0.5 + Math.random() * 0.8;
+  }
+
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.life = 0;
+    this.maxLife = 300 + Math.random() * 500;
+  }
+
+  update(time) {
+    this.prevX = this.x;
+    this.prevY = this.y;
+
+    // Noise-based angle
+    const n = Noise.noise3D(
+      this.x * NOISE_SCALE,
+      this.y * NOISE_SCALE,
+      time * 0.2
+    );
+    let angle = n * Math.PI * 4;
+
+    // Mouse attraction
+    if (mouseActive) {
+      const dx = mx - this.x;
+      const dy = my - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < MOUSE_RADIUS) {
+        const influence = (1 - dist / MOUSE_RADIUS) * MOUSE_STRENGTH;
+        const mouseAngle = Math.atan2(dy, dx);
+        // Blend angles
+        angle = angle * (1 - influence) + mouseAngle * influence;
+        // Speed boost near mouse
+        this.speed *= 1 + influence * 0.5;
+      }
+    }
+
+    // Add slight turbulence layer
+    const n2 = Noise.noise3D(
+      this.x * 0.008,
+      this.y * 0.008,
+      time * 0.5 + 100
+    );
+    angle += n2 * 0.5;
+
+    this.x += Math.cos(angle) * this.speed;
+    this.y += Math.sin(angle) * this.speed;
+    this.life++;
+
+    // Wrap edges
+    if (this.x < -10) this.x = W + 10;
+    if (this.x > W + 10) this.x = -10;
+    if (this.y < -10) this.y = H + 10;
+    if (this.y > H + 10) this.y = -10;
+
+    if (this.life > this.maxLife) this.reset();
+  }
+
+  draw(ctx) {
+    const lifeRatio = this.life / this.maxLife;
+    // Fade in and out
+    let a = this.alpha;
+    if (lifeRatio < 0.05) a *= lifeRatio / 0.05;
+    if (lifeRatio > 0.9) a *= (1 - lifeRatio) / 0.1;
+
+    ctx.strokeStyle = `hsla(${this.hue}, ${this.sat}%, ${this.light}%, ${a})`;
+    ctx.lineWidth = this.size;
+    ctx.beginPath();
+    ctx.moveTo(this.prevX, this.prevY);
+    ctx.lineTo(this.x, this.y);
+    ctx.stroke();
+  }
+}
+
+const particles = Array.from({ length: NUM_PARTICLES }, () => new Particle());
+
+// ─── Glow layer (sparse, larger, brighter) ───
+const GLOW_COUNT = 80;
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = (Math.random() - 0.5) * 0.3;
+    this.radius = 30 + Math.random() * 60;
+    this.hue = 140 + Math.random() * 40;
+    this.alpha = 0.008 + Math.random() * 0.012;
+    this.pulse = Math.random() * Math.PI * 2;
+  }
+
+  update(time) {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.pulse += 0.01;
+    if (this.x < -this.radius) this.x = W + this.radius;
+    if (this.x > W + this.radius) this.x = -this.radius;
+    if (this.y < -this.radius) this.y = H + this.radius;
+    if (this.y > H + this.radius) this.y = -this.radius;
+
+    // Gentle mouse repulsion
+    if (mouseActive) {
+      const dx = this.x - mx;
+      const dy = this.y - my;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 300 && dist > 0) {
+        this.vx += (dx / dist) * 0.02;
+        this.vy += (dy / dist) * 0.02;
+      }
+    }
+    // Dampen
+    this.vx *= 0.99;
+    this.vy *= 0.99;
+  }
+
+  draw(ctx, time) {
+    const r = this.radius + Math.sin(this.pulse) * 10;
+    const a = this.alpha + Math.sin(this.pulse) * 0.004;
+    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    gradient.addColorStop(0, `hsla(${this.hue}, 80%, 50%, ${a})`);
+    gradient.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
+const glows = Array.from({ length: GLOW_COUNT }, () => new GlowOrb());
+
+// ─── Main loop ───
+let time = 0;
+
+function animate() {
+  time += 0.008;
+
+  // Fade: very subtle for long trails
+  ctx.fillStyle = `rgba(2, 10, 5, ${FADE_ALPHA})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Glow layer
+  ctx.globalCompositeOperation = 'screen';
+  for (const g of glows) {
+    g.update(time);
+    g.draw(ctx, time);
+  }
+
+  // Particle trails
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of particles) {
+    p.update(time);
+    p.draw(ctx);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(animate);
+}
+
+// Kick off
+ctx.fillStyle = '#020a05';
+ctx.fillRect(0, 0, W, H);
+animate();
+
+// Touch support
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mx = e.touches[0].clientX;
+  my = e.touches[0].clientY;
+  mouseActive = true;
+  cursor.style.left = mx + 'px';
+  cursor.style.top = my + 'px';
+}, { passive: false });
+
+document.addEventListener('touchstart', e => {
+  Noise.reseed();
+});
+</script>
+</body>
+</html>
