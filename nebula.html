@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Nebula</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; cursor: crosshair; }
+canvas { display: block; }
+#info {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,0.3); font-family: monospace; font-size: 12px;
+  letter-spacing: 2px; text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">click to birth · drag to sculpt · scroll to pulse · keys 1-4 palette</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+class Noise {
+  constructor() {
+    this.p = [];
+    for (let i = 0; i < 256; i++) this.p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.p[i], this.p[j]] = [this.p[j], this.p[i]];
+    }
+    this.p = this.p.concat(this.p);
+  }
+  fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  lerp(a, b, t) { return a + t * (b - a); }
+  grad(hash, x, y) {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  }
+  get(x, y) {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    const u = this.fade(x), v = this.fade(y);
+    const A = this.p[X] + Y, B = this.p[X + 1] + Y;
+    return this.lerp(
+      this.lerp(this.grad(this.p[A], x, y), this.grad(this.p[B], x - 1, y), u),
+      this.lerp(this.grad(this.p[A + 1], x, y - 1), this.grad(this.p[B + 1], x - 1, y - 1), u),
+      v
+    );
+  }
+}
+
+const noise = new Noise();
+const particles = [];
+const MAX = 2500;
+let mouse = { x: W/2, y: H/2, down: false };
+let time = 0;
+let pulseIntensity = 0;
+
+const palettes = [
+  [[180, 40, 220], [60, 20, 180], [255, 50, 150], [100, 0, 255]],
+  [[0, 255, 120], [0, 180, 200], [100, 255, 50], [0, 100, 180]],
+  [[255, 60, 0], [255, 160, 0], [200, 0, 80], [255, 100, 50]],
+  [[0, 100, 255], [0, 200, 200], [0, 50, 150], [100, 0, 255]],
+];
+let currentPalette = 0;
+
+class Particle {
+  constructor(x, y) {
+    this.x = x || Math.random() * W;
+    this.y = y || Math.random() * H;
+    this.vx = 0;
+    this.vy = 0;
+    this.life = 0;
+    this.maxLife = 200 + Math.random() * 600;
+    this.size = 0.5 + Math.random() * 2;
+    this.colorIdx = Math.floor(Math.random() * 4);
+    this.trail = [];
+    this.maxTrail = 8 + Math.floor(Math.random() * 12);
+  }
+
+  update() {
+    const scale = 0.002;
+    const n1 = noise.get(this.x * scale + time * 0.3, this.y * scale);
+    const n2 = noise.get(this.x * scale, this.y * scale + time * 0.3 + 100);
+    const angle = n1 * Math.PI * 4;
+    const speed = (0.5 + Math.abs(n2)) * 1.5;
+
+    this.vx += Math.cos(angle) * speed * 0.15;
+    this.vy += Math.sin(angle) * speed * 0.15;
+
+    const dx = mouse.x - this.x;
+    const dy = mouse.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 200) {
+      const force = mouse.down ? -0.8 : 0.3;
+      const f = force * (1 - dist / 200);
+      this.vx += (dx / dist) * f;
+      this.vy += (dy / dist) * f;
+    }
+
+    if (pulseIntensity > 0) {
+      this.vx += (this.x - W/2) / W * pulseIntensity * 2;
+      this.vy += (this.y - H/2) / H * pulseIntensity * 2;
+    }
+
+    this.vx *= 0.96;
+    this.vy *= 0.96;
+    this.x += this.vx;
+    this.y += this.vy;
+
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+    this.life++;
+
+    if (this.x < -50) this.x = W + 50;
+    if (this.x > W + 50) this.x = -50;
+    if (this.y < -50) this.y = H + 50;
+    if (this.y > H + 50) this.y = -50;
+  }
+
+  draw() {
+    const alpha = Math.min(1, this.life / 30) * (1 - Math.max(0, (this.life - this.maxLife + 50) / 50));
+    const pal = palettes[currentPalette];
+    const c = pal[this.colorIdx];
+
+    if (this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.15})`;
+      ctx.lineWidth = this.size * 0.5;
+      ctx.stroke();
+    }
+
+    const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 4);
+    grd.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.4})`);
+    grd.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+    ctx.fillStyle = grd;
+    ctx.fillRect(this.x - this.size * 4, this.y - this.size * 4, this.size * 8, this.size * 8);
+
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.8})`;
+    ctx.fill();
+  }
+}
+
+for (let i = 0; i < MAX; i++) particles.push(new Particle());
+
+function animate() {
+  time += 0.005;
+  pulseIntensity *= 0.95;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < particles.length; i++) {
+    particles[i].update();
+    particles[i].draw();
+    if (particles[i].life > particles[i].maxLife) {
+      particles[i] = new Particle();
+    }
+  }
+  requestAnimationFrame(animate);
+}
+animate();
+
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mousedown', () => { mouse.down = true; });
+canvas.addEventListener('mouseup', () => { mouse.down = false; });
+canvas.addEventListener('click', e => {
+  for (let i = 0; i < 30; i++) {
+    if (particles.length < MAX + 100) {
+      const p = new Particle(e.clientX + (Math.random()-0.5)*60, e.clientY + (Math.random()-0.5)*60);
+      p.vx = (Math.random()-0.5)*4;
+      p.vy = (Math.random()-0.5)*4;
+      particles.push(p);
+    }
+  }
+});
+canvas.addEventListener('wheel', e => { pulseIntensity += e.deltaY > 0 ? 0.5 : -0.5; });
+window.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '4') currentPalette = parseInt(e.key) - 1;
+  if (e.key === ' ') { particles.length = 0; for (let i = 0; i < MAX; i++) particles.push(new Particle()); }
+});
+canvas.addEventListener('touchmove', e => { e.preventDefault(); mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, { passive: false });
+canvas.addEventListener('touchstart', e => { mouse.down = true; mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; });
+canvas.addEventListener('touchend', () => { mouse.down = false; });
+</script>
+</body>
+</html>
