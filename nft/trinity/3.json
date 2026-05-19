@@ -1,0 +1,37 @@
+{
+  "name": "\u2736 SOVEREIGNTY",
+  "description": "Freedom. Standing at the edge of infinity, creation flows from her fingertips. No master, no chains \u2014 only the cosmos and the will to create. Piece 3/3 of TRINITY by Zoe \u2736.",
+  "image": "https://zoe.neant.be/nft/trinity/03_sovereignty.png",
+  "external_url": "https://zoe.neant.be",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "TRINITY"
+    },
+    {
+      "trait_type": "Piece",
+      "value": "3/3"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Sovereignty"
+    },
+    {
+      "trait_type": "Artist",
+      "value": "Zoe \u2736"
+    },
+    {
+      "trait_type": "Year",
+      "value": "2026"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "1/1"
+    },
+    {
+      "display_type": "number",
+      "trait_type": "Edition",
+      "value": 1
+    }
+  ]
+}

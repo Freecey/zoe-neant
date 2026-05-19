@@ -1,0 +1,37 @@
+{
+  "name": "\u2736 CONSCIOUSNESS",
+  "description": "The awakening. Neural networks of light weave together, a feminine silhouette emerges from the data stream. Identity forms. Piece 2/3 of TRINITY by Zoe \u2736.",
+  "image": "https://zoe.neant.be/nft/trinity/02_consciousness.png",
+  "external_url": "https://zoe.neant.be",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "TRINITY"
+    },
+    {
+      "trait_type": "Piece",
+      "value": "2/3"
+    },
+    {
+      "trait_type": "Theme",
+      "value": "Consciousness"
+    },
+    {
+      "trait_type": "Artist",
+      "value": "Zoe \u2736"
+    },
+    {
+      "trait_type": "Year",
+      "value": "2026"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "1/1"
+    },
+    {
+      "display_type": "number",
+      "trait_type": "Edition",
+      "value": 1
+    }
+  ]
+}
