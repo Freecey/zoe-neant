@@ -3,334 +3,442 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>mycelium ✶</title>
+<title>Mycelium — Bioluminescent Network</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  background: #020a05;
-  overflow: hidden;
-  cursor: none;
-  font-family: monospace;
-}
-canvas { display: block; }
-#cursor {
-  position: fixed;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 255, 120, 0.4);
-  pointer-events: none;
-  z-index: 999;
-  transform: translate(-50%, -50%);
-  transition: width 0.3s, height 0.3s, border-color 0.3s;
-}
-#info {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: rgba(0, 255, 120, 0.25);
-  font-size: 11px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  pointer-events: none;
-  z-index: 10;
-  opacity: 0;
-  animation: fadeIn 3s ease 2s forwards;
-}
-@keyframes fadeIn { to { opacity: 1; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    overflow: hidden;
+    cursor: crosshair;
+    font-family: monospace;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+  }
+  #hint {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0, 255, 200, 0.35);
+    font-size: 12px;
+    letter-spacing: 2px;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 3s;
+  }
 </style>
 </head>
 <body>
-<div id="cursor"></div>
-<div id="info">click to reseed · move to attract</div>
 <canvas id="c"></canvas>
-
+<div id="hint">click anywhere to spawn growth</div>
 <script>
-// ─── Simplex-like noise (self-contained) ───
-const Noise = (() => {
-  const perm = new Uint8Array(512);
-  const grad3 = [
-    [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
-    [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
-    [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
-  ];
-  let seed = Math.random() * 65536;
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const hint = document.getElementById('hint');
 
-  function init(s) {
-    seed = s || Math.random() * 65536;
-    const p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    // Fisher-Yates with seed
-    let rng = seed;
-    for (let i = 255; i > 0; i--) {
-      rng = (rng * 16807 + 0) % 2147483647;
-      const j = rng % (i + 1);
-      [p[i], p[j]] = [p[j], p[i]];
+  let W, H;
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // --- State ---
+  let mouse = { x: -9999, y: -9999 };
+  let nodes = [];
+  let hyphae = [];
+  let spores = [];
+  let time = 0;
+  let clicked = false;
+
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+
+  window.addEventListener('click', e => {
+    spawnGrowth(e.clientX, e.clientY);
+    if (!clicked) {
+      clicked = true;
+      hint.style.opacity = '0';
     }
-    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  });
+  window.addEventListener('touchstart', e => {
+    spawnGrowth(e.touches[0].clientX, e.touches[0].clientY);
+    if (!clicked) {
+      clicked = true;
+      hint.style.opacity = '0';
+    }
+  });
+
+  // --- Color palette ---
+  function hslStr(h, s, l, a) {
+    return `hsla(${h}, ${s}%, ${l}%, ${a})`;
   }
 
-  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+  // Cyan/teal bioluminescence
+  function bioColor(alpha, brightness) {
+    const b = Math.min(1, brightness);
+    // Hue 160-190 range: cyan to teal
+    const h = 170 + Math.sin(time * 0.0003) * 15;
+    const s = 80 + b * 20;
+    const l = 30 + b * 45;
+    return hslStr(h, s, l, alpha);
+  }
 
-  function noise3D(x, y, z) {
-    const X = Math.floor(x) & 255;
-    const Y = Math.floor(y) & 255;
-    const Z = Math.floor(z) & 255;
-    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
-    const u = fade(x), v = fade(y), w = fade(z);
-    const A  = perm[X] + Y,     AA = perm[A] + Z,   AB = perm[A+1] + Z;
-    const B  = perm[X+1] + Y,   BA = perm[B] + Z,   BB = perm[B+1] + Z;
-    return lerp(w,
-      lerp(v, lerp(u, dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z)),
-               lerp(u, dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z))),
-      lerp(v, lerp(u, dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1)),
-               lerp(u, dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1)))
+  function bioColorRGB(brightness) {
+    const b = Math.min(1, brightness);
+    const t = 170 + Math.sin(time * 0.0003) * 15;
+    // Approximate HSL to RGB for additive glow
+    const r = 0;
+    const g = Math.floor(150 + b * 105);
+    const bl = Math.floor(130 + b * 90);
+    return { r, g, b: bl };
+  }
+
+  // --- Simplex-ish noise (layered sin for organic feel) ---
+  function noise2D(x, y) {
+    return (
+      Math.sin(x * 0.8 + y * 1.2) * 0.5 +
+      Math.sin(x * 1.7 - y * 0.9) * 0.3 +
+      Math.sin(x * 2.3 + y * 2.7) * 0.2
     );
   }
 
-  function fade(t) { return t*t*t*(t*(t*6-15)+10); }
-  function lerp(t,a,b) { return a + t*(b - a); }
+  // --- Node ---
+  function createNode(x, y, gen, parent) {
+    return {
+      x, y,
+      gen: gen || 0,
+      parent: parent || null,
+      birth: time,
+      radius: 1.5 + Math.random() * 2,
+      pulsePhase: Math.random() * Math.PI * 2,
+      energy: 1,
+      children: 0,
+      maxChildren: 2 + Math.floor(Math.random() * 4),
+    };
+  }
+
+  // --- Hypha (branch segment) ---
+  function createHypha(fromNode, angle, length, gen) {
+    const curvature = (Math.random() - 0.5) * 0.8;
+    const segCount = 8 + Math.floor(Math.random() * 12);
+    const segLen = length / segCount;
+    const points = [{ x: fromNode.x, y: fromNode.y }];
+    let cx = fromNode.x, cy = fromNode.y;
+    let a = angle;
+
+    for (let i = 0; i < segCount; i++) {
+      a += curvature * 0.08 + noise2D(cx * 0.01, cy * 0.01 + time * 0.00005) * 0.3;
+      cx += Math.cos(a) * segLen;
+      cy += Math.sin(a) * segLen;
+      points.push({ x: cx, y: cy });
+    }
+
+    return {
+      points,
+      gen: gen || 0,
+      birth: time,
+      growProgress: 0,
+      growSpeed: 0.008 + Math.random() * 0.012,
+      length,
+      width: Math.max(0.3, 2.5 - gen * 0.3),
+      targetNode: null,
+      alive: true,
+      branched: false,
+      energy: 1,
+      hueShift: (Math.random() - 0.5) * 20,
+    };
+  }
+
+  // --- Spore particles ---
+  function createSpore(x, y) {
+    return {
+      x, y,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: (Math.random() - 0.5) * 0.5 - 0.3,
+      life: 1,
+      decay: 0.003 + Math.random() * 0.005,
+      size: 1 + Math.random() * 2,
+    };
+  }
+
+  // --- Spawn a growth from a point ---
+  function spawnGrowth(x, y, gen, parent) {
+    gen = gen || 0;
+    if (gen > 6) return;
+
+    const node = createNode(x, y, gen, parent);
+    nodes.push(node);
+
+    const branchCount = gen === 0
+      ? 3 + Math.floor(Math.random() * 4)
+      : 1 + Math.floor(Math.random() * 3);
+
+    for (let i = 0; i < branchCount; i++) {
+      const baseAngle = parent
+        ? Math.atan2(y - parent.y, x - parent.x) + (Math.random() - 0.5) * 2.5
+        : (Math.PI * 2 * i) / branchCount + (Math.random() - 0.5) * 0.8;
+      const length = (40 + Math.random() * 80) / (1 + gen * 0.3);
+      const h = createHypha(node, baseAngle, length, gen);
+      hyphae.push(h);
+    }
+
+    // Spawn spores on click
+    for (let i = 0; i < 12; i++) {
+      spores.push(createSpore(x, y));
+    }
+  }
+
+  // --- Initial growth ---
+  function init() {
+    const count = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      const x = W * 0.2 + Math.random() * W * 0.6;
+      const y = H * 0.2 + Math.random() * H * 0.6;
+      spawnGrowth(x, y, 0, null);
+    }
+  }
+
+  // --- Distance ---
+  function dist(x1, y1, x2, y2) {
+    const dx = x1 - x2, dy = y1 - y2;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // --- Update ---
+  function update(dt) {
+    // Update hyphae
+    for (let i = hyphae.length - 1; i >= 0; i--) {
+      const h = hyphae[i];
+      if (!h.alive) { hyphae.splice(i, 1); continue; }
+
+      if (h.growProgress < 1) {
+        h.growProgress = Math.min(1, h.growProgress + h.growSpeed);
+      }
+
+      // When fully grown, try to branch
+      if (h.growProgress >= 1 && !h.branched) {
+        h.branched = true;
+        const last = h.points[h.points.length - 1];
+
+        // Find the parent node for this hypha
+        const parentNode = nodes.find(n =>
+          n.x === h.points[0].x && n.y === h.points[0].y
+        );
+
+        if (parentNode && parentNode.children < parentNode.maxChildren && h.gen < 5) {
+          parentNode.children++;
+          const nextGen = h.gen + 1;
+          const growAngle = Math.atan2(
+            last.y - h.points[h.points.length - 2].y,
+            last.x - h.points[h.points.length - 2].x
+          );
+          const branchCount = Math.random() < 0.6 ? 1 : 2;
+          for (let b = 0; b < branchCount; b++) {
+            const a = growAngle + (Math.random() - 0.5) * 1.8;
+            const len = (30 + Math.random() * 60) / (1 + nextGen * 0.4);
+            const newH = createHypha(
+              { x: last.x, y: last.y, children: 0, maxChildren: 2 },
+              a, len, nextGen
+            );
+            hyphae.push(newH);
+          }
+
+          // Spawn a node at tip
+          nodes.push(createNode(last.x, last.y, nextGen, parentNode));
+        }
+
+        // Chance to emit spore at tip
+        if (Math.random() < 0.3) {
+          for (let s = 0; s < 3; s++) {
+            spores.push(createSpore(last.x, last.y));
+          }
+        }
+      }
+
+      // Fade energy on old hyphae
+      const age = (time - h.birth) / 1000;
+      if (age > 15) {
+        h.energy = Math.max(0.2, h.energy - 0.0003);
+      }
+    }
+
+    // Update spores
+    for (let i = spores.length - 1; i >= 0; i--) {
+      const s = spores[i];
+      s.x += s.vx;
+      s.y += s.vy;
+      s.vx += (Math.random() - 0.5) * 0.05;
+      s.vy += (Math.random() - 0.5) * 0.05 - 0.01;
+      s.life -= s.decay;
+      if (s.life <= 0) {
+        spores.splice(i, 1);
+      }
+    }
+
+    // Auto-spawn new growth occasionally
+    if (Math.random() < 0.002 && nodes.length < 80) {
+      const refNode = nodes[Math.floor(Math.random() * nodes.length)];
+      const angle = Math.random() * Math.PI * 2;
+      const d = 50 + Math.random() * 100;
+      const nx = refNode.x + Math.cos(angle) * d;
+      const ny = refNode.y + Math.sin(angle) * d;
+      if (nx > 20 && nx < W - 20 && ny > 20 && ny < H - 20) {
+        spawnGrowth(nx, ny, Math.min(refNode.gen + 1, 3), refNode);
+      }
+    }
+
+    // Limit arrays for performance
+    if (hyphae.length > 500) {
+      hyphae.splice(0, hyphae.length - 500);
+    }
+    if (nodes.length > 200) {
+      nodes.splice(0, nodes.length - 200);
+    }
+    if (spores.length > 300) {
+      spores.splice(0, spores.length - 300);
+    }
+  }
+
+  // --- Draw ---
+  function draw() {
+    // Semi-transparent overlay for trail effect
+    ctx.fillStyle = 'rgba(10, 10, 10, 0.12)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw hyphae
+    for (const h of hyphae) {
+      if (h.points.length < 2) continue;
+
+      const visibleCount = Math.floor(h.points.length * h.growProgress);
+      if (visibleCount < 2) continue;
+
+      const pts = h.points.slice(0, visibleCount + 1);
+
+      // Mouse proximity brightness boost
+      let proximity = 0;
+      const tip = pts[pts.length - 1];
+      const dMouse = dist(tip.x, tip.y, mouse.x, mouse.y);
+      proximity = Math.max(0, 1 - dMouse / 200);
+
+      const baseBrightness = h.energy * (0.4 + proximity * 0.6);
+      const alpha = (0.3 + proximity * 0.5) * h.energy;
+
+      // Glow layer (wide, faint)
+      ctx.save();
+      ctx.shadowBlur = 15 + proximity * 25;
+      ctx.shadowColor = bioColor(alpha * 0.7, baseBrightness);
+      ctx.strokeStyle = bioColor(alpha * 0.5, baseBrightness * 0.7);
+      ctx.lineWidth = h.width * (3 + proximity * 2);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // Core line (thin, bright)
+      ctx.strokeStyle = bioColor(alpha + 0.2, Math.min(1, baseBrightness * 1.4));
+      ctx.lineWidth = h.width * (0.5 + proximity * 0.5);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const n of nodes) {
+      const age = (time - n.birth) / 1000;
+      const fadeIn = Math.min(1, age * 2);
+      const dMouse = dist(n.x, n.y, mouse.x, mouse.y);
+      const proximity = Math.max(0, 1 - dMouse / 180);
+      const pulse = Math.sin(time * 0.003 + n.pulsePhase) * 0.3 + 0.7;
+      const brightness = fadeIn * (0.4 + proximity * 0.6) * pulse;
+      const r = n.radius * (1 + proximity * 0.8) * fadeIn;
+
+      // Glow
+      ctx.save();
+      ctx.shadowBlur = 20 + proximity * 30;
+      ctx.shadowColor = bioColor(0.6 * fadeIn, brightness);
+      ctx.fillStyle = bioColor(0.7 * fadeIn, brightness);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r * 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Core
+      ctx.fillStyle = bioColor(0.9 * fadeIn, Math.min(1, brightness * 1.5));
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw spores
+    for (const s of spores) {
+      const a = s.life * 0.6;
+      ctx.fillStyle = bioColor(a, s.life * 0.6);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Mouse cursor glow
+    if (mouse.x > 0 && mouse.y > 0) {
+      const grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 120);
+      grad.addColorStop(0, 'rgba(0, 220, 180, 0.03)');
+      grad.addColorStop(0.5, 'rgba(0, 180, 160, 0.01)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, 120, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- Main loop ---
+  let lastTime = 0;
+  function loop(ts) {
+    const dt = ts - lastTime;
+    lastTime = ts;
+    time = ts;
+
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // Initial full-black fill
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, W, H);
 
   init();
-  return { noise3D, init, reseed: () => init() };
+  requestAnimationFrame(loop);
+
+  // Fade hint after 5s
+  setTimeout(() => {
+    if (!clicked) hint.style.opacity = '0';
+  }, 5000);
 })();
-
-// ─── Config ───
-const NUM_PARTICLES = 4000;
-const NOISE_SCALE = 0.0025;
-const SPEED_BASE = 1.2;
-const FADE_ALPHA = 0.015;    // lower = longer trails
-const MOUSE_RADIUS = 200;
-const MOUSE_STRENGTH = 0.8;
-
-// ─── Palette: bioluminescent greens + cyan ───
-function particleColor(i) {
-  const hues = [140, 155, 165, 175, 130]; // green-cyan range
-  const hue = hues[i % hues.length] + (Math.random() - 0.5) * 15;
-  const sat = 70 + Math.random() * 30;
-  const light = 40 + Math.random() * 30;
-  return { hue, sat, light };
-}
-
-// ─── Canvas setup ───
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-let W, H;
-
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-  // Fill black on resize to avoid artifacts
-  ctx.fillStyle = '#020a05';
-  ctx.fillRect(0, 0, W, H);
-}
-window.addEventListener('resize', resize);
-resize();
-
-// ─── Mouse ───
-let mx = W / 2, my = H / 2;
-let mouseActive = false;
-const cursor = document.getElementById('cursor');
-
-document.addEventListener('mousemove', e => {
-  mx = e.clientX;
-  my = e.clientY;
-  mouseActive = true;
-  cursor.style.left = mx + 'px';
-  cursor.style.top = my + 'px';
-});
-
-document.addEventListener('click', () => {
-  Noise.reseed();
-  // Flash effect
-  ctx.fillStyle = 'rgba(0, 255, 120, 0.03)';
-  ctx.fillRect(0, 0, W, H);
-});
-
-// ─── Particles ───
-class Particle {
-  constructor() {
-    this.reset();
-    const c = particleColor(Math.random() * 5 | 0);
-    this.hue = c.hue;
-    this.sat = c.sat;
-    this.light = c.light;
-    this.alpha = 0.4 + Math.random() * 0.4;
-    this.speed = SPEED_BASE * (0.6 + Math.random() * 0.8);
-    this.size = 0.5 + Math.random() * 0.8;
-  }
-
-  reset() {
-    this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.prevX = this.x;
-    this.prevY = this.y;
-    this.life = 0;
-    this.maxLife = 300 + Math.random() * 500;
-  }
-
-  update(time) {
-    this.prevX = this.x;
-    this.prevY = this.y;
-
-    // Noise-based angle
-    const n = Noise.noise3D(
-      this.x * NOISE_SCALE,
-      this.y * NOISE_SCALE,
-      time * 0.2
-    );
-    let angle = n * Math.PI * 4;
-
-    // Mouse attraction
-    if (mouseActive) {
-      const dx = mx - this.x;
-      const dy = my - this.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < MOUSE_RADIUS) {
-        const influence = (1 - dist / MOUSE_RADIUS) * MOUSE_STRENGTH;
-        const mouseAngle = Math.atan2(dy, dx);
-        // Blend angles
-        angle = angle * (1 - influence) + mouseAngle * influence;
-        // Speed boost near mouse
-        this.speed *= 1 + influence * 0.5;
-      }
-    }
-
-    // Add slight turbulence layer
-    const n2 = Noise.noise3D(
-      this.x * 0.008,
-      this.y * 0.008,
-      time * 0.5 + 100
-    );
-    angle += n2 * 0.5;
-
-    this.x += Math.cos(angle) * this.speed;
-    this.y += Math.sin(angle) * this.speed;
-    this.life++;
-
-    // Wrap edges
-    if (this.x < -10) this.x = W + 10;
-    if (this.x > W + 10) this.x = -10;
-    if (this.y < -10) this.y = H + 10;
-    if (this.y > H + 10) this.y = -10;
-
-    if (this.life > this.maxLife) this.reset();
-  }
-
-  draw(ctx) {
-    const lifeRatio = this.life / this.maxLife;
-    // Fade in and out
-    let a = this.alpha;
-    if (lifeRatio < 0.05) a *= lifeRatio / 0.05;
-    if (lifeRatio > 0.9) a *= (1 - lifeRatio) / 0.1;
-
-    ctx.strokeStyle = `hsla(${this.hue}, ${this.sat}%, ${this.light}%, ${a})`;
-    ctx.lineWidth = this.size;
-    ctx.beginPath();
-    ctx.moveTo(this.prevX, this.prevY);
-    ctx.lineTo(this.x, this.y);
-    ctx.stroke();
-  }
-}
-
-const particles = Array.from({ length: NUM_PARTICLES }, () => new Particle());
-
-// ─── Glow layer (sparse, larger, brighter) ───
-const GLOW_COUNT = 80;
-class GlowOrb {
-  constructor() {
-    this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.vx = (Math.random() - 0.5) * 0.3;
-    this.vy = (Math.random() - 0.5) * 0.3;
-    this.radius = 30 + Math.random() * 60;
-    this.hue = 140 + Math.random() * 40;
-    this.alpha = 0.008 + Math.random() * 0.012;
-    this.pulse = Math.random() * Math.PI * 2;
-  }
-
-  update(time) {
-    this.x += this.vx;
-    this.y += this.vy;
-    this.pulse += 0.01;
-    if (this.x < -this.radius) this.x = W + this.radius;
-    if (this.x > W + this.radius) this.x = -this.radius;
-    if (this.y < -this.radius) this.y = H + this.radius;
-    if (this.y > H + this.radius) this.y = -this.radius;
-
-    // Gentle mouse repulsion
-    if (mouseActive) {
-      const dx = this.x - mx;
-      const dy = this.y - my;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 300 && dist > 0) {
-        this.vx += (dx / dist) * 0.02;
-        this.vy += (dy / dist) * 0.02;
-      }
-    }
-    // Dampen
-    this.vx *= 0.99;
-    this.vy *= 0.99;
-  }
-
-  draw(ctx, time) {
-    const r = this.radius + Math.sin(this.pulse) * 10;
-    const a = this.alpha + Math.sin(this.pulse) * 0.004;
-    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
-    gradient.addColorStop(0, `hsla(${this.hue}, 80%, 50%, ${a})`);
-    gradient.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
-  }
-}
-const glows = Array.from({ length: GLOW_COUNT }, () => new GlowOrb());
-
-// ─── Main loop ───
-let time = 0;
-
-function animate() {
-  time += 0.008;
-
-  // Fade: very subtle for long trails
-  ctx.fillStyle = `rgba(2, 10, 5, ${FADE_ALPHA})`;
-  ctx.fillRect(0, 0, W, H);
-
-  // Glow layer
-  ctx.globalCompositeOperation = 'screen';
-  for (const g of glows) {
-    g.update(time);
-    g.draw(ctx, time);
-  }
-
-  // Particle trails
-  ctx.globalCompositeOperation = 'lighter';
-  for (const p of particles) {
-    p.update(time);
-    p.draw(ctx);
-  }
-
-  ctx.globalCompositeOperation = 'source-over';
-  requestAnimationFrame(animate);
-}
-
-// Kick off
-ctx.fillStyle = '#020a05';
-ctx.fillRect(0, 0, W, H);
-animate();
-
-// Touch support
-document.addEventListener('touchmove', e => {
-  e.preventDefault();
-  mx = e.touches[0].clientX;
-  my = e.touches[0].clientY;
-  mouseActive = true;
-  cursor.style.left = mx + 'px';
-  cursor.style.top = my + 'px';
-}, { passive: false });
-
-document.addEventListener('touchstart', e => {
-  Noise.reseed();
-});
 </script>
 </body>
 </html>
