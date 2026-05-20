@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Fractal Terrain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0a; }
+  canvas { display: block; cursor: crosshair; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ── Simplex Noise (compact implementation) ──────────────────────────
+const SimplexNoise = (() => {
+  const F2 = 0.5 * (Math.sqrt(3) - 1);
+  const G2 = (3 - Math.sqrt(3)) / 6;
+  const F3 = 1 / 3;
+  const G3 = 1 / 6;
+
+  const grad3 = [
+    [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+    [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+    [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+  ];
+
+  class Simplex {
+    constructor(seed) {
+      this.perm = new Uint8Array(512);
+      this.permMod12 = new Uint8Array(512);
+      const p = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) p[i] = i;
+      // Fisher-Yates with seed
+      let s = seed || 42;
+      for (let i = 255; i > 0; i--) {
+        s = (s * 16807 + 0) % 2147483647;
+        const j = s % (i + 1);
+        [p[i], p[j]] = [p[j], p[i]];
+      }
+      for (let i = 0; i < 512; i++) {
+        this.perm[i] = p[i & 255];
+        this.permMod12[i] = this.perm[i] % 12;
+      }
+    }
+
+    noise2D(x, y) {
+      const { perm, permMod12 } = this;
+      const s = (x + y) * F2;
+      const i = Math.floor(x + s);
+      const j = Math.floor(y + s);
+      const t = (i + j) * G2;
+      const X0 = i - t, Y0 = j - t;
+      const x0 = x - X0, y0 = y - Y0;
+
+      let i1, j1;
+      if (x0 > y0) { i1 = 1; j1 = 0; }
+      else { i1 = 0; j1 = 1; }
+
+      const x1 = x0 - i1 + G2;
+      const y1 = y0 - j1 + G2;
+      const x2 = x0 - 1 + 2 * G2;
+      const y2 = y0 - 1 + 2 * G2;
+
+      const ii = i & 255, jj = j & 255;
+
+      let n0 = 0, n1 = 0, n2 = 0;
+
+      let t0 = 0.5 - x0 * x0 - y0 * y0;
+      if (t0 >= 0) {
+        const gi0 = permMod12[ii + perm[jj]];
+        t0 *= t0;
+        n0 = t0 * t0 * (grad3[gi0][0] * x0 + grad3[gi0][1] * y0);
+      }
+
+      let t1 = 0.5 - x1 * x1 - y1 * y1;
+      if (t1 >= 0) {
+        const gi1 = permMod12[ii + i1 + perm[jj + j1]];
+        t1 *= t1;
+        n1 = t1 * t1 * (grad3[gi1][0] * x1 + grad3[gi1][1] * y1);
+      }
+
+      let t2 = 0.5 - x2 * x2 - y2 * y2;
+      if (t2 >= 0) {
+        const gi2 = permMod12[ii + 1 + perm[jj + 1]];
+        t2 *= t2;
+        n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2);
+      }
+
+      return 70 * (n0 + n1 + n2);
+    }
+
+    noise3D(x, y, z) {
+      const { perm, permMod12 } = this;
+      const s = (x + y + z) * F3;
+      const i = Math.floor(x + s);
+      const j = Math.floor(y + s);
+      const k = Math.floor(z + s);
+      const t = (i + j + k) * G3;
+      const X0 = i - t, Y0 = j - t, Z0 = k - t;
+      const x0 = x - X0, y0 = y - Y0, z0 = z - Z0;
+
+      let i1, j1, k1, i2, j2, k2;
+      if (x0 >= y0) {
+        if (y0 >= z0) { i1=1;j1=0;k1=0;i2=1;j2=1;k2=0; }
+        else if (x0 >= z0) { i1=1;j1=0;k1=0;i2=1;j2=0;k2=1; }
+        else { i1=0;j1=0;k1=1;i2=1;j2=0;k2=1; }
+      } else {
+        if (y0 < z0) { i1=0;j1=0;k1=1;i2=0;j2=1;k2=1; }
+        else if (x0 < z0) { i1=0;j1=1;k1=0;i2=0;j2=1;k2=1; }
+        else { i1=0;j1=1;k1=0;i2=1;j2=1;k2=0; }
+      }
+
+      const x1=x0-i1+G3, y1=y0-j1+G3, z1=z0-k1+G3;
+      const x2=x0-i2+2*G3, y2=y0-j2+2*G3, z2=z0-k2+2*G3;
+      const x3=x0-1+3*G3, y3=y0-1+3*G3, z3=z0-1+3*G3;
+
+      const ii=i&255, jj=j&255, kk=k&255;
+
+      let n0=0,n1=0,n2=0,n3=0;
+
+      let t0 = 0.6 - x0*x0 - y0*y0 - z0*z0;
+      if (t0 >= 0) {
+        const gi = permMod12[ii+perm[jj+perm[kk]]];
+        t0*=t0; n0 = t0*t0*(grad3[gi][0]*x0+grad3[gi][1]*y0+grad3[gi][2]*z0);
+      }
+      let t1 = 0.6 - x1*x1 - y1*y1 - z1*z1;
+      if (t1 >= 0) {
+        const gi = permMod12[ii+i1+perm[jj+j1+perm[kk+k1]]];
+        t1*=t1; n1 = t1*t1*(grad3[gi][0]*x1+grad3[gi][1]*y1+grad3[gi][2]*z1);
+      }
+      let t2 = 0.6 - x2*x2 - y2*y2 - z2*z2;
+      if (t2 >= 0) {
+        const gi = permMod12[ii+i2+perm[jj+j2+perm[kk+k2]]];
+        t2*=t2; n2 = t2*t2*(grad3[gi][0]*x2+grad3[gi][1]*y2+grad3[gi][2]*z2);
+      }
+      let t3 = 0.6 - x3*x3 - y3*y3 - z3*z3;
+      if (t3 >= 0) {
+        const gi = permMod12[ii+1+perm[jj+1+perm[kk+1]]];
+        t3*=t3; n3 = t3*t3*(grad3[gi][0]*x3+grad3[gi][1]*y3+grad3[gi][2]*z3);
+      }
+      return 32 * (n0+n1+n2+n3);
+    }
+  }
+  return Simplex;
+})();
+
+// ── Setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const simplex = new SimplexNoise(Date.now());
+
+let W, H, imageData, data;
+const SCALE = 4; // render at 1/4 resolution for performance
+const CONTOUR_INTERVAL = 0.06;
+const CONTOUR_WIDTH = 0.008;
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.ceil(W / SCALE);
+  canvas.height = Math.ceil(H / SCALE);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  imageData = ctx.createImageData(canvas.width, canvas.height);
+  data = imageData.data;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Mouse / Touch ────────────────────────────────────────────────────
+const mouse = { x: -9999, y: -9999, active: false };
+
+function updateMouse(px, py) {
+  mouse.x = px / SCALE;
+  mouse.y = py / SCALE;
+  mouse.active = true;
+}
+
+canvas.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
+canvas.addEventListener('mouseleave', () => { mouse.active = false; });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  updateMouse(t.clientX, t.clientY);
+}, { passive: false });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  updateMouse(t.clientX, t.clientY);
+}, { passive: false });
+canvas.addEventListener('touchend', () => { mouse.active = false; });
+
+// ── Color palette ─────────────────────────────────────────────────────
+// Terrain height → color mapping
+function terrainColor(h, contourGlow) {
+  // h is roughly -1..1 from noise, we shift to 0..1
+  const v = (h + 1) * 0.5;
+
+  let r, g, b;
+
+  if (v < 0.32) {
+    // Deep water
+    const t = v / 0.32;
+    r = lerp(5, 15, t);
+    g = lerp(8, 30, t);
+    b = lerp(30, 80, t);
+  } else if (v < 0.40) {
+    // Shallow water / shore
+    const t = (v - 0.32) / 0.08;
+    r = lerp(15, 25, t);
+    g = lerp(30, 55, t);
+    b = lerp(80, 65, t);
+  } else if (v < 0.48) {
+    // Lowlands - dark green
+    const t = (v - 0.40) / 0.08;
+    r = lerp(25, 30, t);
+    g = lerp(55, 70, t);
+    b = lerp(65, 30, t);
+  } else if (v < 0.58) {
+    // Greens / forest
+    const t = (v - 0.48) / 0.10;
+    r = lerp(30, 55, t);
+    g = lerp(70, 85, t);
+    b = lerp(30, 25, t);
+  } else if (v < 0.68) {
+    // Transitional - olive to brown
+    const t = (v - 0.58) / 0.10;
+    r = lerp(55, 120, t);
+    g = lerp(85, 85, t);
+    b = lerp(25, 30, t);
+  } else if (v < 0.78) {
+    // Rock / warm orange
+    const t = (v - 0.68) / 0.10;
+    r = lerp(120, 190, t);
+    g = lerp(85, 110, t);
+    b = lerp(30, 45, t);
+  } else if (v < 0.88) {
+    // High peaks - warm
+    const t = (v - 0.78) / 0.10;
+    r = lerp(190, 230, t);
+    g = lerp(110, 180, t);
+    b = lerp(45, 140, t);
+  } else {
+    // Snow caps
+    const t = Math.min(1, (v - 0.88) / 0.12);
+    r = lerp(230, 255, t);
+    g = lerp(180, 250, t);
+    b = lerp(140, 255, t);
+  }
+
+  // Add contour glow
+  if (contourGlow > 0) {
+    const glow = contourGlow * 0.6;
+    r = Math.min(255, r + glow * 120);
+    g = Math.min(255, g + glow * 140);
+    b = Math.min(255, b + glow * 100);
+  }
+
+  return [r | 0, g | 0, b | 0];
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// ── Height function (layered octaves) ────────────────────────────────
+function getHeight(px, py, time) {
+  let h = 0;
+  let amp = 1;
+  let freq = 1;
+  let maxAmp = 0;
+
+  // 6 octaves of 3D noise (x, y, time) for animation
+  for (let o = 0; o < 6; o++) {
+    h += amp * simplex.noise3D(px * freq * 0.008, py * freq * 0.008, time * 0.15);
+    maxAmp += amp;
+    amp *= 0.5;
+    freq *= 2.1;
+  }
+
+  // Ridge noise layer for mountain ridges
+  let ridge = 0;
+  amp = 0.8;
+  freq = 1.5;
+  for (let o = 0; o < 4; o++) {
+    let n = simplex.noise3D(px * freq * 0.006, py * freq * 0.006, time * 0.1 + 100);
+    n = 1 - Math.abs(n);
+    n = n * n;
+    ridge += amp * n;
+    amp *= 0.5;
+    freq *= 2.0;
+  }
+  h += ridge * 0.6;
+
+  h /= (maxAmp + 0.6 * 0.8 * (1 + 0.5 + 0.25 + 0.125));
+
+  return h;
+}
+
+// ── Main render ──────────────────────────────────────────────────────
+let time = 0;
+let lastFrame = performance.now();
+
+function render(now) {
+  requestAnimationFrame(render);
+
+  const dt = (now - lastFrame) * 0.001;
+  lastFrame = now;
+  time += dt * 0.08; // slow breathing
+
+  const cw = canvas.width;
+  const ch = canvas.height;
+
+  // Light source position
+  const lx = mouse.active ? mouse.x : -9999;
+  const ly = mouse.active ? mouse.y : -9999;
+  const lightRadius = 80 / SCALE;
+  const lightRadius2 = lightRadius * lightRadius;
+
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const h = getHeight(x, y, time);
+
+      // Contour line detection
+      const contourVal = h / CONTOUR_INTERVAL;
+      const contourFrac = contourVal - Math.floor(contourVal);
+      const contourDist = Math.min(contourFrac, 1 - contourFrac);
+      let contourGlow = 0;
+      if (contourDist < CONTOUR_WIDTH * 3) {
+        contourGlow = 1 - contourDist / (CONTOUR_WIDTH * 3);
+        contourGlow = contourGlow * contourGlow;
+      }
+
+      // Base color
+      let [r, g, b] = terrainColor(h, contourGlow);
+
+      // Radial light from mouse
+      if (mouse.active) {
+        const dx = x - lx;
+        const dy = y - ly;
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 < lightRadius2 * 4) {
+          const dist = Math.sqrt(dist2);
+          const falloff = 1 - dist / (lightRadius * 2);
+          if (falloff > 0) {
+            const intensity = falloff * falloff * 1.2;
+            // Warm light tint
+            r = Math.min(255, r + intensity * 90);
+            g = Math.min(255, g + intensity * 70);
+            b = Math.min(255, b + intensity * 40);
+
+            // Extra illumination boost on the terrain
+            const height = (h + 1) * 0.5;
+            r = Math.min(255, r + intensity * height * 30);
+            g = Math.min(255, g + intensity * height * 25);
+            b = Math.min(255, b + intensity * height * 15);
+          }
+        }
+      }
+
+      // Subtle ambient shimmer
+      const shimmer = simplex.noise2D(x * 0.02, y * 0.02 + time * 0.3) * 4;
+      r = Math.max(0, Math.min(255, r + shimmer));
+      g = Math.max(0, Math.min(255, g + shimmer * 0.7));
+      b = Math.max(0, Math.min(255, b + shimmer * 0.5));
+
+      const idx = (y * cw + x) * 4;
+      data[idx] = r;
+      data[idx + 1] = g;
+      data[idx + 2] = b;
+      data[idx + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // Apply bilinear scaling by drawing the small image scaled up
+  // Actually we need a temp canvas approach, but putImageData + CSS scaling works fine
+}
+
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
