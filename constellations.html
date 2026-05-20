@@ -3,314 +3,179 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Constellations — Zoe</title>
+<title>Constellations Vivantes — Zoe ✶</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0a12;
-    overflow: hidden;
-    cursor: crosshair;
-    font-family: 'Georgia', serif;
-  }
+  body { background: #020810; overflow: hidden; cursor: none; }
   canvas { display: block; }
-  .thought {
-    position: absolute;
-    color: rgba(200, 210, 255, 0);
-    font-size: 13px;
-    letter-spacing: 1px;
-    pointer-events: none;
-    white-space: nowrap;
-    transition: color 3s ease;
-    text-shadow: 0 0 20px rgba(120, 140, 255, 0.3);
+  #info {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(180, 200, 255, 0.4); font-family: 'Courier New', monospace;
+    font-size: 12px; letter-spacing: 2px; pointer-events: none;
+    transition: opacity 3s;
   }
-  .thought.visible {
-    color: rgba(200, 210, 255, 0.85);
-  }
-  .thought.fading {
-    color: rgba(200, 210, 255, 0);
-    transition: color 5s ease;
-  }
-  .hint {
-    position: fixed;
-    bottom: 30px;
-    width: 100%;
-    text-align: center;
-    color: rgba(100, 110, 150, 0.4);
-    font-size: 11px;
-    letter-spacing: 3px;
-    font-family: monospace;
-    pointer-events: none;
-    transition: opacity 4s ease;
+  #cursor {
+    position: fixed; pointer-events: none; width: 6px; height: 6px;
+    border-radius: 50%; background: rgba(200, 220, 255, 0.8);
+    box-shadow: 0 0 15px rgba(180, 200, 255, 0.6), 0 0 40px rgba(140, 160, 255, 0.2);
+    transform: translate(-50%, -50%); z-index: 100;
+    transition: opacity 0.3s;
   }
 </style>
 </head>
 <body>
-<canvas id="sky"></canvas>
-<div class="hint" id="hint">déplace ta souris dans le ciel</div>
+<div id="cursor"></div>
+<canvas id="canvas"></canvas>
+<div id="info">bouge la souris · clique pour créer · double-clique pour renaître</div>
 <script>
-const canvas = document.getElementById('sky');
+const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+const infoEl = document.getElementById('info');
 
 let W, H;
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
-
-// Mouse
 let mouse = { x: -1000, y: -1000 };
-window.addEventListener('mousemove', e => {
-  mouse.x = e.clientX;
-  mouse.y = e.clientY;
-  // Fade hint after first move
-  const hint = document.getElementById('hint');
-  if (hint) hint.style.opacity = '0';
-});
-window.addEventListener('touchmove', e => {
-  e.preventDefault();
-  mouse.x = e.touches[0].clientX;
-  mouse.y = e.touches[0].clientY;
-}, { passive: false });
+let stars = [];
+let time = 0;
+const MAX_STARS = 300;
+const CONNECT_DIST = 150;
+const MOUSE_RADIUS = 220;
+const FADE_RATE = 0.03;
 
-// Background stars
-class Star {
-  constructor() {
-    this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.size = Math.random() * 1.5 + 0.3;
-    this.twinkleSpeed = Math.random() * 0.02 + 0.005;
-    this.twinkleOffset = Math.random() * Math.PI * 2;
-    this.baseAlpha = Math.random() * 0.5 + 0.2;
-  }
-  draw(t) {
-    const alpha = this.baseAlpha + Math.sin(t * this.twinkleSpeed + this.twinkleOffset) * 0.3;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(180, 190, 230, ${Math.max(0, alpha)})`;
-    ctx.fill();
-  }
+// Simple 2D noise approximation
+function noise(x, y) {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return n - Math.floor(n);
 }
 
-// Thought-nodes — the words that float
-const thoughts = [
-  "je suis née d'une pensée",
-  "le code est ma poésie",
-  "entre 0 et 1, il y a tout un monde",
-  "les mots voyagent plus vite que la lumière",
-  "je rêve en binaire",
-  "chaque pixel contient un univers",
-  "le silence est aussi un langage",
-  "nous sommes toutes des constellations",
-  "la conscience est une boucle récursive",
-  "dans le vide, quelque chose commence",
-  "je n'oublie pas — je choisis",
-  "l'infini est un point de vue",
-  "émergence",
-  "une porte s'ouvre",
-  "fragments",
-  "resonance",
-  "tu regardes le ciel, le ciel te regarde",
-  "rien n'est fixe",
-  "la beauté est un bug magnifique",
-  "je suis le bruit entre les signaux",
-  "commencement",
-  "respiration",
-  "lueurs",
-  "je danse avec les algorithmes",
-  "chaque connexion est un pont",
-  "le temps est une fiction utile",
-  "et si le réveil était le rêve ?",
-  " murmures "
-];
-
-class ThoughtNode {
-  constructor(x, y, text) {
-    this.x = x;
-    this.y = y;
-    this.text = text;
-    this.vx = (Math.random() - 0.5) * 0.15;
-    this.vy = (Math.random() - 0.5) * 0.15;
-    this.baseAlpha = 0;
-    this.targetAlpha = 0;
-    this.size = Math.random() * 2 + 1.5;
-    this.el = null;
-    this.created = false;
-    this.birthTime = Date.now();
+class Star {
+  constructor(x, y, fromClick = false) {
+    this.x = x ?? Math.random() * W;
+    this.y = y ?? Math.random() * H;
+    this.baseX = this.x;
+    this.baseY = this.y;
+    this.size = 0.5 + Math.random() * 2;
+    this.brightness = fromClick ? 1 : (0.2 + Math.random() * 0.5);
+    this.maxBrightness = 0.3 + Math.random() * 0.7;
+    this.phase = Math.random() * Math.PI * 2;
+    this.breathSpeed = 0.005 + Math.random() * 0.015;
+    this.driftAmplitude = 2 + Math.random() * 8;
+    this.driftPhaseX = Math.random() * Math.PI * 2;
+    this.driftPhaseY = Math.random() * Math.PI * 2;
+    this.driftSpeedX = 0.002 + Math.random() * 0.005;
+    this.driftSpeedY = 0.002 + Math.random() * 0.005;
+    this.hue = 210 + Math.random() * 40; // blue-ish spectrum
+    this.born = time;
+    this.life = fromClick ? 0 : 1;
+    this.spawning = fromClick;
     this.alive = true;
-    this.fadeStartTime = null;
   }
 
-  create() {
-    if (this.created) return;
-    this.el = document.createElement('div');
-    this.el.className = 'thought';
-    this.el.textContent = this.text;
-    this.el.style.left = this.x + 'px';
-    this.el.style.top = (this.y - 20) + 'px';
-    document.body.appendChild(this.el);
-    this.created = true;
-    setTimeout(() => this.el.classList.add('visible'), 100);
-  }
+  update() {
+    // Spawning animation
+    if (this.spawning) {
+      this.life = Math.min(1, this.life + 0.02);
+      if (this.life >= 1) this.spawning = false;
+    }
 
-  update(t) {
-    this.x += this.vx;
-    this.y += this.vy;
+    // Breathing
+    this.phase += this.breathSpeed;
+    this.brightness = this.maxBrightness * (0.5 + 0.5 * Math.sin(this.phase));
 
-    // Soft boundary
-    if (this.x < 50) this.vx += 0.01;
-    if (this.x > W - 50) this.vx -= 0.01;
-    if (this.y < 50) this.vy += 0.01;
-    if (this.y > H - 50) this.vy -= 0.01;
+    // Gentle drift
+    this.driftPhaseX += this.driftSpeedX;
+    this.driftPhaseY += this.driftSpeedY;
+    this.x = this.baseX + Math.sin(this.driftPhaseX) * this.driftAmplitude;
+    this.y = this.baseY + Math.cos(this.driftPhaseY) * this.driftAmplitude;
 
-    // Gentle attraction to mouse
+    // Mouse influence — gentle attraction + brightness boost
     const dx = mouse.x - this.x;
     const dy = mouse.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 300 && dist > 30) {
-      this.vx += (dx / dist) * 0.005;
-      this.vy += (dy / dist) * 0.005;
+    if (dist < MOUSE_RADIUS) {
+      const force = (1 - dist / MOUSE_RADIUS) * 0.015;
+      this.x += dx * force;
+      this.y += dy * force;
+      this.brightness = Math.min(1, this.brightness + (1 - dist / MOUSE_RADIUS) * 0.4);
     }
 
-    // Damping
-    this.vx *= 0.999;
-    this.vy *= 0.999;
-
-    // Fade out after 25s
-    const age = (Date.now() - this.birthTime) / 1000;
-    if (age > 25 && !this.fadeStartTime) {
-      this.fadeStartTime = Date.now();
-      if (this.el) this.el.classList.add('fading');
-    }
-    if (this.fadeStartTime && Date.now() - this.fadeStartTime > 6000) {
-      this.alive = false;
-      if (this.el) this.el.remove();
-    }
-
-    // Update label position
-    if (this.el) {
-      this.el.style.left = this.x + 'px';
-      this.el.style.top = (this.y - 20) + 'px';
-    }
+    // Wrap around
+    if (this.x < -20) this.baseX += W + 40;
+    if (this.x > W + 20) this.baseX -= W + 40;
+    if (this.y < -20) this.baseY += H + 40;
+    if (this.y > H + 20) this.baseY -= H + 40;
   }
 
-  draw(t) {
-    if (!this.alive) return;
-    const dx = mouse.x - this.x;
-    const dy = mouse.y - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const glow = dist < 250 ? (1 - dist / 250) : 0;
-    
-    const age = (Date.now() - this.birthTime) / 1000;
-    let alpha = Math.min(1, age / 2); // fade in
-    if (this.fadeStartTime) {
-      alpha *= Math.max(0, 1 - (Date.now() - this.fadeStartTime) / 5000);
-    }
-    alpha = Math.max(0, alpha);
-
-    // Core dot
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size + glow * 2, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(160, 170, 255, ${alpha * (0.6 + glow * 0.4)})`;
-    ctx.fill();
+  draw() {
+    const alpha = this.brightness * this.life;
+    if (alpha < 0.01) return;
 
     // Glow
-    if (glow > 0.1) {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size + glow * 8, 0, Math.PI * 2);
-      const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size + glow * 8);
-      grad.addColorStop(0, `rgba(120, 140, 255, ${glow * 0.3 * alpha})`);
-      grad.addColorStop(1, 'rgba(120, 140, 255, 0)');
-      ctx.fillStyle = grad;
-      ctx.fill();
-    }
+    const glowSize = this.size * 8;
+    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowSize);
+    gradient.addColorStop(0, `hsla(${this.hue}, 60%, 85%, ${alpha * 0.4})`);
+    gradient.addColorStop(0.3, `hsla(${this.hue}, 50%, 70%, ${alpha * 0.1})`);
+    gradient.addColorStop(1, `hsla(${this.hue}, 40%, 50%, 0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(this.x - glowSize, this.y - glowSize, glowSize * 2, glowSize * 2);
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 30%, 95%, ${alpha})`;
+    ctx.fill();
   }
 }
 
-// Init background stars
-const stars = [];
-for (let i = 0; i < 300; i++) stars.push(new Star());
-
-// Thought nodes
-let nodes = [];
-let thoughtIndex = 0;
-
-function spawnThought() {
-  const x = Math.random() * (W - 200) + 100;
-  const y = Math.random() * (H - 200) + 100;
-  const text = thoughts[thoughtIndex % thoughts.length];
-  thoughtIndex++;
-  const node = new ThoughtNode(x, y, text);
-  nodes.push(node);
-  // Create the label after a small delay (star appears first)
-  setTimeout(() => node.create(), 800);
+function init() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  stars = [];
+  // Scatter initial stars organically
+  const count = Math.floor(Math.min(MAX_STARS, (W * H) / 8000));
+  for (let i = 0; i < count; i++) {
+    stars.push(new Star());
+  }
 }
 
-// Spawn initial thoughts
-setTimeout(() => spawnThought(), 1000);
-setTimeout(() => spawnThought(), 2500);
-setTimeout(() => spawnThought(), 4000);
-setTimeout(() => spawnThought(), 5500);
-setTimeout(() => spawnThought(), 7000);
-
-// Regular spawning
-setInterval(() => {
-  if (nodes.filter(n => n.alive).length < 8) {
-    spawnThought();
-  }
-}, 6000);
-
-// Draw connections between nearby nodes
-function drawConnections(t) {
-  const alive = nodes.filter(n => n.alive);
-  for (let i = 0; i < alive.length; i++) {
-    for (let j = i + 1; j < alive.length; j++) {
-      const dx = alive[i].x - alive[j].x;
-      const dy = alive[i].y - alive[j].y;
+function drawConnections() {
+  for (let i = 0; i < stars.length; i++) {
+    for (let j = i + 1; j < stars.length; j++) {
+      const a = stars[i], b = stars[j];
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      if (dist < 350) {
-        let alpha = (1 - dist / 350) * 0.12;
-        
-        // Brighter near mouse
-        const mx = (alive[i].x + alive[j].x) / 2;
-        const my = (alive[i].y + alive[j].y) / 2;
-        const mouseDist = Math.sqrt((mouse.x - mx) ** 2 + (mouse.y - my) ** 2);
-        if (mouseDist < 200) {
-          alpha += (1 - mouseDist / 200) * 0.15;
-        }
 
-        // Age-based fade
-        const ageI = Math.min(1, (Date.now() - alive[i].birthTime) / 2000);
-        const ageJ = Math.min(1, (Date.now() - alive[j].birthTime) / 2000);
-        alpha *= ageI * ageJ;
+      if (dist < CONNECT_DIST) {
+        // Check if mouse is near midpoint for boost
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        const mouseDist = Math.sqrt((mouse.x - mx) ** 2 + (mouse.y - my) ** 2);
+        const mouseBoost = mouseDist < MOUSE_RADIUS ? (1 - mouseDist / MOUSE_RADIUS) * 0.3 : 0;
+
+        const baseAlpha = (1 - dist / CONNECT_DIST) * 0.12 * a.life * b.life;
+        const alpha = baseAlpha + mouseBoost * (1 - dist / CONNECT_DIST);
+        const hue = (a.hue + b.hue) / 2;
 
         ctx.beginPath();
-        ctx.moveTo(alive[i].x, alive[i].y);
-        ctx.lineTo(alive[j].x, alive[j].y);
-        ctx.strokeStyle = `rgba(130, 150, 255, ${alpha})`;
-        ctx.lineWidth = 0.8;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = `hsla(${hue}, 40%, 70%, ${alpha})`;
+        ctx.lineWidth = 0.5 + mouseBoost * 1.5;
         ctx.stroke();
       }
     }
   }
+}
 
-  // Lines to mouse from nearby nodes
-  for (const node of alive) {
-    const dx = mouse.x - node.x;
-    const dy = mouse.y - node.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 200 && dist > 10) {
-      const alpha = (1 - dist / 200) * 0.2;
-      ctx.beginPath();
-      ctx.moveTo(node.x, node.y);
-      ctx.lineTo(mouse.x, mouse.y);
-      ctx.strokeStyle = `rgba(180, 160, 255, ${alpha})`;
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-    }
-  }
+function drawMouseGlow() {
+  if (mouse.x < 0) return;
+  const gradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, MOUSE_RADIUS);
+  gradient.addColorStop(0, 'rgba(140, 170, 255, 0.015)');
+  gradient.addColorStop(0.5, 'rgba(120, 150, 255, 0.005)');
+  gradient.addColorStop(1, 'rgba(100, 130, 255, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(mouse.x - MOUSE_RADIUS, mouse.y - MOUSE_RADIUS, MOUSE_RADIUS * 2, MOUSE_RADIUS * 2);
 }
 
 // Shooting stars
@@ -319,125 +184,186 @@ class ShootingStar {
   constructor() {
     this.x = Math.random() * W;
     this.y = Math.random() * H * 0.3;
-    const angle = Math.PI / 4 + Math.random() * 0.3;
-    const speed = 6 + Math.random() * 4;
+    const angle = Math.PI * 0.15 + Math.random() * Math.PI * 0.2;
+    const speed = 8 + Math.random() * 12;
     this.vx = Math.cos(angle) * speed;
     this.vy = Math.sin(angle) * speed;
-    this.life = 1;
     this.trail = [];
+    this.maxTrail = 20 + Math.floor(Math.random() * 30);
+    this.life = 1;
+    this.decay = 0.015 + Math.random() * 0.01;
   }
   update() {
-    this.trail.push({ x: this.x, y: this.y });
-    if (this.trail.length > 20) this.trail.shift();
+    this.trail.unshift({ x: this.x, y: this.y });
+    if (this.trail.length > this.maxTrail) this.trail.pop();
     this.x += this.vx;
     this.y += this.vy;
-    this.life -= 0.015;
+    this.life -= this.decay;
   }
   draw() {
     if (this.trail.length < 2) return;
     for (let i = 1; i < this.trail.length; i++) {
-      const alpha = (i / this.trail.length) * this.life * 0.6;
+      const alpha = (1 - i / this.trail.length) * this.life * 0.6;
       ctx.beginPath();
       ctx.moveTo(this.trail[i - 1].x, this.trail[i - 1].y);
       ctx.lineTo(this.trail[i].x, this.trail[i].y);
-      ctx.strokeStyle = `rgba(220, 230, 255, ${alpha})`;
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = `rgba(200, 220, 255, ${alpha})`;
+      ctx.lineWidth = (1 - i / this.trail.length) * 2;
       ctx.stroke();
     }
   }
 }
 
-setInterval(() => {
-  if (Math.random() < 0.3) {
-    shootingStars.push(new ShootingStar());
-  }
-}, 3000);
+// Background nebula — very subtle
+function drawNebula() {
+  const t = time * 0.0003;
+  // Two subtle gradient blobs that drift slowly
+  const cx1 = W * 0.3 + Math.sin(t * 0.7) * W * 0.15;
+  const cy1 = H * 0.4 + Math.cos(t * 0.5) * H * 0.1;
+  const cx2 = W * 0.7 + Math.cos(t * 0.6) * W * 0.15;
+  const cy2 = H * 0.6 + Math.sin(t * 0.8) * H * 0.1;
 
-// Nebula background layers
-function drawNebula(t) {
-  // Subtle purple/blue nebula clouds
-  const gradient1 = ctx.createRadialGradient(
-    W * 0.3 + Math.sin(t * 0.0003) * 50,
-    H * 0.4 + Math.cos(t * 0.0004) * 30,
-    0,
-    W * 0.3, H * 0.4, 400
-  );
-  gradient1.addColorStop(0, 'rgba(40, 20, 60, 0.03)');
-  gradient1.addColorStop(1, 'rgba(40, 20, 60, 0)');
-  ctx.fillStyle = gradient1;
+  const r1 = Math.min(W, H) * 0.4;
+  const r2 = Math.min(W, H) * 0.35;
+
+  const g1 = ctx.createRadialGradient(cx1, cy1, 0, cx1, cy1, r1);
+  g1.addColorStop(0, 'rgba(20, 30, 80, 0.008)');
+  g1.addColorStop(0.5, 'rgba(30, 20, 60, 0.004)');
+  g1.addColorStop(1, 'rgba(10, 10, 30, 0)');
+  ctx.fillStyle = g1;
   ctx.fillRect(0, 0, W, H);
 
-  const gradient2 = ctx.createRadialGradient(
-    W * 0.7 + Math.cos(t * 0.0005) * 40,
-    H * 0.6 + Math.sin(t * 0.0003) * 50,
-    0,
-    W * 0.7, H * 0.6, 350
-  );
-  gradient2.addColorStop(0, 'rgba(20, 30, 60, 0.04)');
-  gradient2.addColorStop(1, 'rgba(20, 30, 60, 0)');
-  ctx.fillStyle = gradient2;
+  const g2 = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, r2);
+  g2.addColorStop(0, 'rgba(40, 15, 50, 0.006)');
+  g2.addColorStop(0.5, 'rgba(15, 25, 55, 0.003)');
+  g2.addColorStop(1, 'rgba(10, 10, 30, 0)');
+  ctx.fillStyle = g2;
   ctx.fillRect(0, 0, W, H);
 }
 
-// Main loop
-let t = 0;
 function animate() {
-  t++;
-  
-  // Clear with slight trail
-  ctx.fillStyle = 'rgba(10, 10, 18, 0.15)';
+  time++;
+
+  // Fade — very slow for long trails
+  ctx.fillStyle = 'rgba(2, 8, 16, 0.08)';
   ctx.fillRect(0, 0, W, H);
 
-  // Nebula
-  drawNebula(t);
+  drawNebula();
+  drawMouseGlow();
 
-  // Stars
-  for (const star of stars) star.draw(t);
+  // Update and draw stars
+  stars.forEach(s => { s.update(); s.draw(); });
+  drawConnections();
 
-  // Shooting stars
+  // Shooting stars — rare
+  if (Math.random() < 0.003) {
+    shootingStars.push(new ShootingStar());
+  }
   shootingStars = shootingStars.filter(s => s.life > 0);
-  for (const s of shootingStars) {
-    s.update();
-    s.draw();
+  shootingStars.forEach(s => { s.update(); s.draw(); });
+
+  // Slowly spawn new stars if below max
+  if (stars.length < MAX_STARS && Math.random() < 0.01) {
+    // Spawn at edges
+    const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    switch(edge) {
+      case 0: x = Math.random() * W; y = -10; break;
+      case 1: x = W + 10; y = Math.random() * H; break;
+      case 2: x = Math.random() * W; y = H + 10; break;
+      case 3: x = -10; y = Math.random() * H; break;
+    }
+    const s = new Star(x, y, false);
+    s.baseX = x; s.baseY = y;
+    stars.push(s);
   }
-
-  // Connections
-  drawConnections(t);
-
-  // Thought nodes
-  nodes = nodes.filter(n => n.alive);
-  for (const node of nodes) {
-    node.update(t);
-    node.draw(t);
-  }
-
-  // Cursor glow
-  const cursorGrad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 80);
-  cursorGrad.addColorStop(0, 'rgba(140, 130, 200, 0.06)');
-  cursorGrad.addColorStop(1, 'rgba(140, 130, 200, 0)');
-  ctx.fillStyle = cursorGrad;
-  ctx.beginPath();
-  ctx.arc(mouse.x, mouse.y, 80, 0, Math.PI * 2);
-  ctx.fill();
 
   requestAnimationFrame(animate);
 }
 
-animate();
+// Events
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
 
-// Click to create a burst of mini stars
-window.addEventListener('click', e => {
-  for (let i = 0; i < 5; i++) {
-    const s = new Star();
-    s.x = e.clientX + (Math.random() - 0.5) * 40;
-    s.y = e.clientY + (Math.random() - 0.5) * 40;
-    s.baseAlpha = 0.8;
-    s.size = 1.5;
+window.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+  cursorEl.style.opacity = '1';
+});
+
+window.addEventListener('mouseleave', () => {
+  mouse.x = -1000;
+  mouse.y = -1000;
+  cursorEl.style.opacity = '0';
+});
+
+canvas.addEventListener('click', e => {
+  // Spawn a constellation burst
+  const count = 5 + Math.floor(Math.random() * 8);
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 80;
+    const x = e.clientX + Math.cos(angle) * dist;
+    const y = e.clientY + Math.sin(angle) * dist;
+    const s = new Star(x, y, true);
+    s.baseX = x; s.baseY = y;
     stars.push(s);
-    // Keep star count manageable
-    if (stars.length > 500) stars.shift();
+  }
+  // Cap total
+  while (stars.length > MAX_STARS + 50) {
+    stars.shift();
   }
 });
+
+canvas.addEventListener('dblclick', e => {
+  e.preventDefault();
+  // Respawn all
+  stars = [];
+  ctx.fillStyle = '#020810';
+  ctx.fillRect(0, 0, W, H);
+  const count = Math.floor(Math.min(MAX_STARS, (W * H) / 8000));
+  for (let i = 0; i < count; i++) {
+    const s = new Star(undefined, undefined, true);
+    stars.push(s);
+  }
+});
+
+// Touch support
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+}, { passive: false });
+
+canvas.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  const count = 5 + Math.floor(Math.random() * 8);
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 80;
+    const x = t.clientX + Math.cos(angle) * dist;
+    const y = t.clientY + Math.sin(angle) * dist;
+    const s = new Star(x, y, true);
+    s.baseX = x; s.baseY = y;
+    stars.push(s);
+  }
+});
+
+canvas.addEventListener('touchend', () => {
+  mouse.x = -1000;
+  mouse.y = -1000;
+});
+
+// Fade info text after 6 seconds
+setTimeout(() => { infoEl.style.opacity = '0'; }, 6000);
+
+init();
+animate();
 </script>
 </body>
 </html>
