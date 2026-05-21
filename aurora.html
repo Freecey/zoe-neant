@@ -1,95 +1,411 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zoe ✶ — Aurora</title>
-  <style>
-    *{margin:0;padding:0}
-    body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
-    canvas{display:block}
-    #ui{position:fixed;bottom:20px;left:20px;color:#fff;opacity:0.5;font-size:11px}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aurora — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(180, 255, 200, 0.6);
+    box-shadow: 0 0 20px rgba(100, 255, 180, 0.4), 0 0 60px rgba(100, 255, 180, 0.1);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 999;
+    transition: width 0.3s, height 0.3s;
+  }
+  #hint {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(180, 220, 200, 0.3);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 3px;
+    pointer-events: none;
+    z-index: 10;
+    animation: fadeHint 8s ease-in forwards;
+  }
+  @keyframes fadeHint {
+    0%, 60% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
 </head>
 <body>
-  <canvas id="c"></canvas>
-  <div id="ui">ZOE AURORA<br>Bougez la souris</div>
-  <script>
-    const c=document.getElementById('c');
-    const x=c.getContext('2d');
-    let w,h,mx=0,my=0,time=0;
-    
-    function r(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
-    
-    function draw(){
-      // Gradient background
-      const gradient=x.createLinearGradient(0,0,w,h);
-      gradient.addColorStop(0,'#0a0015');
-      gradient.addColorStop(0.5,'#1a0a2e');
-      gradient.addColorStop(1,'#0a0015');
-      x.fillStyle=gradient;
-      x.fillRect(0,0,w,h);
-      
-      const cx=w/2,cy=h/2;
-      
-      // Aurora waves
-      for(let i=0;i<5;i++){
-        const y=cy+(i-2)*80;
-        const phase=i*0.5;
-        
-        x.beginPath();
-        for(let px=0;px<w;px+=5){
-          const wave1=Math.sin(px*0.01+time+phase)*30;
-          const wave2=Math.sin(px*0.02+time*1.5+phase)*20;
-          const mouseDist=Math.sqrt((px-mx)**2+(y-my)**2);
-          const mouseEffect=Math.max(0,200-mouseDist)/200*50;
-          
-          const yPos=y+wave1+wave2+mouseEffect;
-          
-          if(px===0){
-            x.moveTo(px,yPos);
-          }else{
-            x.lineTo(px,yPos);
-          }
-        }
-        
-        const gradient2=x.createLinearGradient(0,y-50,0,y+50);
-        gradient2.addColorStop(0,'transparent');
-        gradient2.addColorStop(0.5,`hsla(${280+i*20},70%,60%,0.3)`);
-        gradient2.addColorStop(1,'transparent');
-        x.strokeStyle=gradient2;
-        x.lineWidth=20;
-        x.stroke();
-      }
-      
-      // Stars
-      for(let i=0;i<50;i++){
-        const sx=(Math.sin(i*123.456+time*0.1)*0.5+0.5)*w;
-        const sy=(Math.cos(i*789.012+time*0.05)*0.5+0.5)*h;
-        const twinkle=Math.sin(time*3+i)*0.5+0.5;
-        
-        x.fillStyle=`rgba(255,255,255,${twinkle*0.8})`;
-        x.beginPath();
-        x.arc(sx,sy,twinkle*1.5,0,Math.PI*2);
-        x.fill();
-      }
-      
-      // Text
-      x.fillStyle='#fff';
-      x.font='16px Courier New';
-      x.textAlign='center';
-      x.fillText('ZOE',cx,cy-100);
-      x.font='10px Courier New';
-      x.fillStyle='rgba(255,255,255,.5)';
-      x.fillText('INTRÉPIDE',cx,cy-80);
-      
-      time+=0.01;
-      requestAnimationFrame(draw);
+<div id="cursor"></div>
+<div id="hint">move · click · hold</div>
+<canvas id="c"></canvas>
+
+<script>
+// Aurora Borealis — Zoe ✶
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+
+let W, H;
+let mouse = { x: 0, y: 0, pressed: false, vx: 0, vy: 0 };
+let prevMouse = { x: 0, y: 0 };
+let time = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- Noise (simplified Perlin) ---
+const PERM = new Uint8Array(512);
+(function() {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+})();
+
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function lerp(a, b, t) { return a + t * (b - a); }
+function grad(hash, x, y) {
+  const h = hash & 3;
+  const u = h < 2 ? x : y;
+  const v = h < 2 ? y : x;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+function noise2D(x, y) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u = fade(xf), v = fade(yf);
+  const aa = PERM[PERM[X] + Y], ab = PERM[PERM[X] + Y + 1];
+  const ba = PERM[PERM[X + 1] + Y], bb = PERM[PERM[X + 1] + Y + 1];
+  return lerp(
+    lerp(grad(aa, xf, yf), grad(ba, xf - 1, yf), u),
+    lerp(grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1), u),
+    v
+  );
+}
+
+// --- Stars ---
+const stars = [];
+for (let i = 0; i < 300; i++) {
+  stars.push({
+    x: Math.random() * 3000,
+    y: Math.random() * 1500,
+    r: 0.3 + Math.random() * 1.2,
+    twinkle: Math.random() * Math.PI * 2,
+    speed: 0.005 + Math.random() * 0.02
+  });
+}
+
+function drawStars() {
+  for (const s of stars) {
+    s.twinkle += s.speed;
+    const alpha = 0.3 + Math.sin(s.twinkle) * 0.3;
+    const sx = s.x % W, sy = s.y % H;
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(200, 220, 255, ${alpha})`;
+    ctx.fill();
+  }
+}
+
+// --- Shooting stars ---
+const shootingStars = [];
+
+function spawnShootingStar() {
+  if (shootingStars.length > 3) return;
+  shootingStars.push({
+    x: Math.random() * W,
+    y: Math.random() * H * 0.3,
+    vx: 3 + Math.random() * 6,
+    vy: 2 + Math.random() * 3,
+    life: 1,
+    trail: [],
+    maxTrail: 20 + Math.floor(Math.random() * 15)
+  });
+}
+
+function updateShootingStars() {
+  for (let i = shootingStars.length - 1; i >= 0; i--) {
+    const s = shootingStars[i];
+    s.trail.unshift({ x: s.x, y: s.y });
+    if (s.trail.length > s.maxTrail) s.trail.pop();
+    s.x += s.vx;
+    s.y += s.vy;
+    s.life -= 0.012;
+    if (s.life <= 0 || s.x > W + 50 || s.y > H + 50) {
+      shootingStars.splice(i, 1);
+      continue;
     }
-    
-    window.addEventListener('resize',r);
-    window.addEventListener('mousemove',(e)=>{mx=e.clientX;my=e.clientY;});
-    r();draw();
-  </script>
+    // Draw trail
+    for (let j = 0; j < s.trail.length; j++) {
+      const t = s.trail[j];
+      const alpha = (1 - j / s.trail.length) * s.life * 0.7;
+      const r = (1 - j / s.trail.length) * 2;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fill();
+    }
+  }
+  if (Math.random() < 0.003) spawnShootingStar();
+}
+
+// --- Aurora Ribbons ---
+const RIBBON_COUNT = 6;
+const RIBBON_POINTS = 80;
+
+class Ribbon {
+  constructor(index) {
+    this.index = index;
+    this.baseY = H * 0.15 + (index / RIBBON_COUNT) * H * 0.45;
+    this.hue = 120 + index * 25; // green → cyan → blue
+    this.width = 30 + Math.random() * 50;
+    this.noiseOffX = Math.random() * 100;
+    this.noiseOffY = Math.random() * 100;
+    this.speed = 0.3 + Math.random() * 0.4;
+    this.alpha = 0.015 + Math.random() * 0.02;
+  }
+
+  draw(t) {
+    const points = [];
+    for (let i = 0; i <= RIBBON_POINTS; i++) {
+      const ratio = i / RIBBON_POINTS;
+      const x = ratio * W;
+
+      const n1 = noise2D(ratio * 3 + this.noiseOffX + t * this.speed * 0.2, this.noiseOffY + t * 0.1);
+      const n2 = noise2D(ratio * 5 + this.noiseOffX + t * this.speed * 0.15, this.noiseOffY + t * 0.08 + 10);
+      const n3 = noise2D(ratio * 1.5 + this.noiseOffX, this.noiseOffY + t * 0.05 + 20);
+
+      let y = this.baseY + n1 * 80 + n2 * 40 + n3 * 120;
+
+      // Mouse attraction
+      const dx = mouse.x - x;
+      const dy = mouse.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const influence = Math.max(0, 1 - dist / 350);
+      if (mouse.pressed) {
+        y += dy * influence * 0.4;
+      } else {
+        y += dy * influence * 0.15;
+      }
+
+      points.push({ x, y });
+    }
+
+    // Draw ribbon as gradient band
+    for (let pass = 0; pass < 3; pass++) {
+      const widthMul = [1.5, 1, 0.5][pass];
+      const alphaMul = [0.3, 0.6, 1][pass];
+      const hueShift = [0, 10, 20][pass];
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y - this.width * widthMul);
+      for (let i = 1; i < points.length; i++) {
+        const xc = (points[i].x + points[i - 1].x) / 2;
+        const yc = (points[i].y + points[i - 1].y) / 2 - this.width * widthMul;
+        ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y - this.width * widthMul, xc, yc);
+      }
+      // Bottom edge (reversed)
+      for (let i = points.length - 1; i >= 1; i--) {
+        const xc = (points[i].x + points[i - 1].x) / 2;
+        const yc = (points[i].y + points[i - 1].y) / 2 + this.width * widthMul;
+        ctx.quadraticCurveTo(points[i].x, points[i].y + this.width * widthMul, xc, yc);
+      }
+      ctx.closePath();
+
+      const grad = ctx.createLinearGradient(0, this.baseY - this.width * 2, 0, this.baseY + this.width * 2);
+      const h = this.hue + hueShift + Math.sin(t * 0.3 + this.index) * 20;
+      const a = this.alpha * alphaMul;
+      grad.addColorStop(0, `hsla(${h}, 80%, 50%, 0)`);
+      grad.addColorStop(0.3, `hsla(${h}, 80%, 55%, ${a})`);
+      grad.addColorStop(0.5, `hsla(${h + 20}, 90%, 60%, ${a * 1.5})`);
+      grad.addColorStop(0.7, `hsla(${h}, 80%, 55%, ${a})`);
+      grad.addColorStop(1, `hsla(${h}, 80%, 50%, 0)`);
+
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    // Bright core line
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const xc = (points[i].x + points[i - 1].x) / 2;
+      const yc = (points[i].y + points[i - 1].y) / 2;
+      ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, xc, yc);
+    }
+    ctx.strokeStyle = `hsla(${this.hue + 20}, 90%, 70%, ${this.alpha * 3})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+const ribbons = [];
+for (let i = 0; i < RIBBON_COUNT; i++) {
+  ribbons.push(new Ribbon(i));
+}
+
+// --- Mouse particles ---
+const mouseParticles = [];
+
+function spawnMouseParticles() {
+  const speed = Math.sqrt(mouse.vx * mouse.vx + mouse.vy * mouse.vy);
+  const count = Math.min(3, Math.floor(speed * 0.3));
+  for (let i = 0; i < count; i++) {
+    mouseParticles.push({
+      x: mouse.x + (Math.random() - 0.5) * 10,
+      y: mouse.y + (Math.random() - 0.5) * 10,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: (Math.random() - 0.5) * 1.5 - 0.5,
+      life: 0.6 + Math.random() * 0.8,
+      hue: 140 + Math.random() * 60,
+      r: 1 + Math.random() * 2
+    });
+  }
+  if (mouse.pressed) {
+    for (let i = 0; i < 2; i++) {
+      mouseParticles.push({
+        x: mouse.x + (Math.random() - 0.5) * 20,
+        y: mouse.y + (Math.random() - 0.5) * 20,
+        vx: (Math.random() - 0.5) * 3,
+        vy: (Math.random() - 0.5) * 3,
+        life: 0.8 + Math.random() * 0.5,
+        hue: 80 + Math.random() * 80,
+        r: 1.5 + Math.random() * 2.5
+      });
+    }
+  }
+}
+
+function updateMouseParticles() {
+  for (let i = mouseParticles.length - 1; i >= 0; i--) {
+    const p = mouseParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy -= 0.01; // slight float up
+    p.life -= 0.015;
+    if (p.life <= 0) {
+      mouseParticles.splice(i, 1);
+      continue;
+    }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${p.life * 0.6})`;
+    ctx.fill();
+  }
+  // Cap particles
+  while (mouseParticles.length > 200) mouseParticles.shift();
+}
+
+// --- Click burst ---
+canvas.addEventListener('click', (e) => {
+  for (let i = 0; i < 50; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 5;
+    mouseParticles.push({
+      x: e.clientX,
+      y: e.clientY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 0.8 + Math.random() * 1,
+      hue: 100 + Math.random() * 100,
+      r: 1 + Math.random() * 3
+    });
+  }
+  // Spawn extra shooting star
+  spawnShootingStar();
+  spawnShootingStar();
+});
+
+// --- Mouse tracking ---
+document.addEventListener('mousemove', (e) => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+document.addEventListener('mousedown', () => {
+  mouse.pressed = true;
+  cursorEl.style.width = '14px';
+  cursorEl.style.height = '14px';
+  cursorEl.style.background = 'rgba(180, 255, 200, 0.9)';
+});
+document.addEventListener('mouseup', () => {
+  mouse.pressed = false;
+  cursorEl.style.width = '8px';
+  cursorEl.style.height = '8px';
+  cursorEl.style.background = 'rgba(180, 255, 200, 0.6)';
+});
+
+// Touch support
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+  mouse.pressed = true;
+}, { passive: false });
+canvas.addEventListener('touchstart', (e) => {
+  const t = e.touches[0];
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+  mouse.pressed = true;
+});
+canvas.addEventListener('touchend', () => { mouse.pressed = false; });
+
+// --- Main Loop ---
+function animate() {
+  time += 0.01;
+
+  // Mouse velocity
+  mouse.vx = mouse.x - prevMouse.x;
+  mouse.vy = mouse.y - prevMouse.y;
+  prevMouse.x = mouse.x;
+  prevMouse.y = mouse.y;
+
+  // Dark sky gradient background
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, '#010108');
+  bgGrad.addColorStop(0.4, '#020210');
+  bgGrad.addColorStop(0.7, '#030a15');
+  bgGrad.addColorStop(1, '#050812');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  drawStars();
+
+  // Shooting stars
+  updateShootingStars();
+
+  // Aurora ribbons — screen blend for additive glow
+  ctx.globalCompositeOperation = 'screen';
+  for (const ribbon of ribbons) {
+    ribbon.draw(time);
+  }
+
+  // Mouse particles
+  ctx.globalCompositeOperation = 'lighter';
+  spawnMouseParticles();
+  updateMouseParticles();
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
 </body>
 </html>
