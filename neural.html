@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Neural Void</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #050508; overflow: hidden; cursor: none; }
+canvas { display: block; }
+#cursor {
+  position: fixed;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid rgba(139, 92, 246, 0.8);
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.4), 0 0 40px rgba(139, 92, 246, 0.1);
+  transition: width 0.2s, height 0.2s;
+}
+#cursor.active {
+  width: 24px;
+  height: 24px;
+  border-color: rgba(167, 139, 250, 0.9);
+  box-shadow: 0 0 25px rgba(167, 139, 250, 0.6), 0 0 60px rgba(139, 92, 246, 0.2);
+}
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let mouse = { x: W / 2, y: H / 2, active: false };
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  cursor.style.left = e.clientX + 'px';
+  cursor.style.top = e.clientY + 'px';
+});
+document.addEventListener('mousedown', () => { mouse.active = true; cursor.classList.add('active'); });
+document.addEventListener('mouseup', () => { mouse.active = false; cursor.classList.remove('active'); });
+
+// Simplex-like noise (fast hash-based)
+function noise2D(x, y) {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function smoothNoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = noise2D(ix, iy), b = noise2D(ix + 1, iy);
+  const c = noise2D(ix, iy + 1), d = noise2D(ix + 1, iy + 1);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function fbm(x, y) {
+  let v = 0, amp = 0.5;
+  for (let i = 0; i < 4; i++) {
+    v += amp * smoothNoise(x, y);
+    x *= 2; y *= 2; amp *= 0.5;
+  }
+  return v;
+}
+
+// Particles
+const NUM = 180;
+const CONNECTION_DIST = 140;
+const MOUSE_RADIUS = 200;
+const PULSE_SPEED = 0.3;
+
+class Particle {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.vx = 0;
+    this.vy = 0;
+    this.size = 1.5 + Math.random() * 2;
+    this.energy = 0.3 + Math.random() * 0.7;
+    this.phase = Math.random() * Math.PI * 2;
+    this.depth = 0.3 + Math.random() * 0.7; // parallax depth
+    this.noiseOffX = Math.random() * 1000;
+    this.noiseOffY = Math.random() * 1000;
+  }
+
+  update(t) {
+    // Noise-driven organic movement
+    const nx = fbm(this.noiseOffX + t * 0.15, this.noiseOffY + t * 0.1) - 0.5;
+    const ny = fbm(this.noiseOffY + t * 0.12, this.noiseOffX + t * 0.08) - 0.5;
+    
+    this.vx += nx * 0.08 * this.depth;
+    this.vy += ny * 0.08 * this.depth;
+
+    // Mouse interaction
+    const dx = mouse.x - this.x;
+    const dy = mouse.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    if (dist < MOUSE_RADIUS) {
+      const force = (1 - dist / MOUSE_RADIUS) * 0.5;
+      if (mouse.active) {
+        // Attract when clicking
+        this.vx += dx * force * 0.02;
+        this.vy += dy * force * 0.02;
+        this.energy = Math.min(1, this.energy + 0.02);
+      } else {
+        // Gentle repulsion
+        this.vx -= dx * force * 0.005;
+        this.vy -= dy * force * 0.005;
+      }
+    }
+
+    // Pulse energy
+    this.energy += Math.sin(t * PULSE_SPEED + this.phase) * 0.003;
+    this.energy = Math.max(0.15, Math.min(1, this.energy));
+
+    // Damping
+    this.vx *= 0.96;
+    this.vy *= 0.96;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Wrap around edges with padding
+    const pad = 50;
+    if (this.x < -pad) this.x = W + pad;
+    if (this.x > W + pad) this.x = -pad;
+    if (this.y < -pad) this.y = H + pad;
+    if (this.y > H + pad) this.y = -pad;
+  }
+
+  draw() {
+    const alpha = this.energy * this.depth;
+    const r = this.size * (0.8 + this.energy * 0.4);
+    
+    // Glow
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 6);
+    grad.addColorStop(0, `rgba(139, 92, 246, ${alpha * 0.3})`);
+    grad.addColorStop(0.5, `rgba(139, 92, 246, ${alpha * 0.08})`);
+    grad.addColorStop(1, 'rgba(139, 92, 246, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(this.x - r * 6, this.y - r * 6, r * 12, r * 12);
+    
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    const coreAlpha = alpha * 0.9;
+    ctx.fillStyle = `rgba(200, 180, 255, ${coreAlpha})`;
+    ctx.fill();
+  }
+}
+
+const particles = [];
+for (let i = 0; i < NUM; i++) particles.push(new Particle());
+
+// Energy pulses traveling along connections
+const pulses = [];
+
+function spawnPulse(ax, ay, bx, by) {
+  pulses.push({
+    ax, ay, bx, by,
+    t: 0,
+    speed: 0.01 + Math.random() * 0.02,
+    size: 1 + Math.random() * 1.5,
+  });
+}
+
+// Signal propagation
+let signalOrigin = null;
+let signalTime = 0;
+let signalActive = false;
+
+document.addEventListener('mousedown', e => {
+  // Find nearest particle to spawn signal
+  let nearest = null, minDist = Infinity;
+  for (const p of particles) {
+    const d = Math.hypot(p.x - e.clientX, p.y - e.clientY);
+    if (d < minDist) { minDist = d; nearest = p; }
+  }
+  if (nearest && minDist < MOUSE_RADIUS) {
+    signalOrigin = nearest;
+    signalTime = 0;
+    signalActive = true;
+    nearest.energy = 1;
+  }
+});
+
+function drawConnections(t) {
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const a = particles[i], b = particles[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      if (dist < CONNECTION_DIST) {
+        const alpha = (1 - dist / CONNECTION_DIST) * 0.25 * Math.min(a.energy, b.energy) * Math.min(a.depth, b.depth);
+        
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = `rgba(139, 92, 246, ${alpha})`;
+        ctx.lineWidth = 0.5 + alpha * 1.5;
+        ctx.stroke();
+        
+        // Random pulse along connection
+        if (Math.random() < 0.0005 * a.energy * b.energy) {
+          spawnPulse(a.x, a.y, b.x, b.y);
+        }
+      }
+    }
+  }
+}
+
+// Signal propagation
+function propagateSignal(t) {
+  if (!signalActive || !signalOrigin) return;
+  signalTime += 0.016;
+  
+  const maxDist = signalTime * 200; // signal travels outward
+  const fadeRadius = maxDist - 80;
+  
+  for (const p of particles) {
+    const d = Math.hypot(p.x - signalOrigin.x, p.y - signalOrigin.y);
+    if (d < maxDist && d > fadeRadius) {
+      const intensity = 1 - (d - fadeRadius) / 80;
+      p.energy = Math.min(1, p.energy + intensity * 0.05);
+    }
+  }
+  
+  if (signalTime > 3) signalActive = false;
+}
+
+function drawPulses() {
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p = pulses[i];
+    p.t += p.speed;
+    if (p.t > 1) { pulses.splice(i, 1); continue; }
+    
+    const x = p.ax + (p.bx - p.ax) * p.t;
+    const y = p.ay + (p.by - p.ay) * p.t;
+    const alpha = Math.sin(p.t * Math.PI) * 0.8;
+    
+    ctx.beginPath();
+    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(200, 180, 255, ${alpha})`;
+    ctx.fill();
+    
+    // Tiny glow
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, p.size * 4);
+    grad.addColorStop(0, `rgba(167, 139, 250, ${alpha * 0.4})`);
+    grad.addColorStop(1, 'rgba(167, 139, 250, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - p.size * 4, y - p.size * 4, p.size * 8, p.size * 8);
+  }
+}
+
+// Subtle background grid / void texture
+function drawBackground(t) {
+  // Deep void with subtle movement
+  ctx.fillStyle = 'rgba(5, 5, 8, 0.15)';
+  ctx.fillRect(0, 0, W, H);
+}
+
+// Central core pulse
+function drawCore(t) {
+  const cx = W / 2, cy = H / 2;
+  const pulse = 0.7 + Math.sin(t * 0.5) * 0.3;
+  const radius = 80 * pulse;
+  
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  grad.addColorStop(0, `rgba(139, 92, 246, ${0.06 * pulse})`);
+  grad.addColorStop(0.5, `rgba(139, 92, 246, ${0.02 * pulse})`);
+  grad.addColorStop(1, 'rgba(139, 92, 246, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+}
+
+let time = 0;
+function animate() {
+  time += 0.016;
+  
+  drawBackground(time);
+  drawCore(time);
+  
+  propagateSignal(time);
+  
+  for (const p of particles) p.update(time);
+  
+  drawConnections(time);
+  drawPulses();
+  
+  for (const p of particles) p.draw();
+  
+  requestAnimationFrame(animate);
+}
+
+// Initial clear
+ctx.fillStyle = '#050508';
+ctx.fillRect(0, 0, W, H);
+
+animate();
+
+// Touch support
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouse.x = e.touches[0].clientX;
+  mouse.y = e.touches[0].clientY;
+  cursor.style.left = mouse.x + 'px';
+  cursor.style.top = mouse.y + 'px';
+}, { passive: false });
+document.addEventListener('touchstart', e => {
+  mouse.x = e.touches[0].clientX;
+  mouse.y = e.touches[0].clientY;
+  mouse.active = true;
+  cursor.classList.add('active');
+});
+document.addEventListener('touchend', () => {
+  mouse.active = false;
+  cursor.classList.remove('active');
+});
+</script>
+</body>
+</html>
