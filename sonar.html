@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Sonar</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020808;
+    overflow: hidden;
+    cursor: none;
+    font-family: 'Courier New', monospace;
+  }
+  canvas { display: block; }
+  #info {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0, 200, 180, 0.3);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #cursor {
+    position: fixed;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(0, 255, 220, 0.6);
+    box-shadow: 0 0 15px rgba(0, 255, 220, 0.4), 0 0 30px rgba(0, 255, 220, 0.2);
+    pointer-events: none;
+    z-index: 100;
+    transform: translate(-50%, -50%);
+    transition: width 0.1s, height 0.1s;
+  }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="info">click to ping · move to scan</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Mouse state
+let mx = W / 2, my = H / 2;
+let mouseActive = false;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX;
+  my = e.clientY;
+  mouseActive = true;
+  cursor.style.left = mx + 'px';
+  cursor.style.top = my + 'px';
+});
+
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mx = e.touches[0].clientX;
+  my = e.touches[0].clientY;
+  mouseActive = true;
+}, { passive: false });
+
+// Ping waves
+const waves = [];
+
+class Ping {
+  constructor(x, y, maxRadius) {
+    this.x = x;
+    this.y = y;
+    this.radius = 0;
+    this.maxRadius = maxRadius || (300 + Math.random() * 200);
+    this.speed = 2.5 + Math.random() * 1.5;
+    this.alive = true;
+    this.alpha = 0.8;
+    this.thickness = 2;
+  }
+  update() {
+    this.radius += this.speed;
+    this.alpha = 0.8 * (1 - this.radius / this.maxRadius);
+    if (this.radius > this.maxRadius) {
+      this.alive = false;
+    }
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    const a = this.alpha;
+    // Main ring
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 220, 200, ${a})`;
+    ctx.lineWidth = this.thickness * a;
+    ctx.stroke();
+    // Inner glow ring
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 255, 240, ${a * 0.3})`;
+    ctx.lineWidth = this.thickness * a * 4;
+    ctx.stroke();
+  }
+}
+
+// Echoes — particles revealed by pings
+const echoes = [];
+
+class Echo {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.baseAlpha = 0;
+    this.alpha = 0;
+    this.revealed = false;
+    this.size = 2 + Math.random() * 3;
+    this.pulsePhase = Math.random() * Math.PI * 2;
+    this.fadeTimer = 0;
+    this.fadeDuration = 180 + Math.random() * 120; // frames
+    this.drift = { x: (Math.random() - 0.5) * 0.15, y: (Math.random() - 0.5) * 0.15 };
+  }
+  reveal(strength) {
+    this.baseAlpha = Math.min(1, strength);
+    this.alpha = this.baseAlpha;
+    this.revealed = true;
+    this.fadeTimer = 0;
+  }
+  update() {
+    this.x += this.drift.x;
+    this.y += this.drift.y;
+    this.pulsePhase += 0.05;
+    if (this.revealed) {
+      this.fadeTimer++;
+      this.alpha = this.baseAlpha * (1 - this.fadeTimer / this.fadeDuration);
+      if (this.alpha <= 0) {
+        this.revealed = false;
+        this.alpha = 0;
+        this.baseAlpha = 0;
+      }
+    }
+  }
+  draw(ctx) {
+    if (this.alpha <= 0.01) return;
+    const pulse = 1 + Math.sin(this.pulsePhase) * 0.3;
+    const s = this.size * pulse;
+    const a = this.alpha;
+    // Glow
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, s * 4);
+    grad.addColorStop(0, `rgba(0, 255, 220, ${a * 0.6})`);
+    grad.addColorStop(0.5, `rgba(0, 200, 180, ${a * 0.15})`);
+    grad.addColorStop(1, `rgba(0, 180, 160, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(this.x - s * 4, this.y - s * 4, s * 8, s * 8);
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, s, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(180, 255, 240, ${a * 0.9})`;
+    ctx.fill();
+  }
+}
+
+// Generate scattered echoes
+function spawnEchoes(count) {
+  for (let i = 0; i < count; i++) {
+    echoes.push(new Echo(
+      50 + Math.random() * (W - 100),
+      50 + Math.random() * (H - 100)
+    ));
+  }
+}
+spawnEchoes(120);
+
+// Click to ping
+canvas.addEventListener('click', e => {
+  waves.push(new Ping(e.clientX, e.clientY, 400 + Math.random() * 300));
+});
+canvas.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  waves.push(new Ping(t.clientX, t.clientY, 400 + Math.random() * 300));
+});
+
+// Auto-ping from center or mouse position periodically
+let autoPingTimer = 0;
+const autoPingInterval = 90; // frames
+
+// Ambient scan lines
+let scanAngle = 0;
+
+// Grid dots (background)
+function drawGrid(ctx) {
+  const spacing = 60;
+  const a = 0.04;
+  ctx.fillStyle = `rgba(0, 180, 160, ${a})`;
+  for (let x = spacing; x < W; x += spacing) {
+    for (let y = spacing; y < H; y += spacing) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// Rotating scan beam from mouse position
+function drawScanBeam(ctx) {
+  scanAngle += 0.008;
+  const len = 250;
+  const x2 = mx + Math.cos(scanAngle) * len;
+  const y2 = my + Math.sin(scanAngle) * len;
+
+  const grad = ctx.createLinearGradient(mx, my, x2, y2);
+  grad.addColorStop(0, `rgba(0, 255, 220, 0.15)`);
+  grad.addColorStop(1, `rgba(0, 255, 220, 0)`);
+
+  ctx.beginPath();
+  ctx.moveTo(mx, my);
+  // Draw as a narrow cone
+  const spread = 0.08;
+  ctx.lineTo(mx + Math.cos(scanAngle - spread) * len, my + Math.sin(scanAngle - spread) * len);
+  ctx.lineTo(mx + Math.cos(scanAngle + spread) * len, my + Math.sin(scanAngle + spread) * len);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+// Check wave-echo collisions
+function checkCollisions() {
+  for (const wave of waves) {
+    if (!wave.alive) continue;
+    for (const echo of echoes) {
+      if (echo.revealed) continue;
+      const dx = echo.x - wave.x;
+      const dy = echo.y - wave.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Check if the wave front is passing through the echo
+      if (Math.abs(dist - wave.radius) < 8) {
+        const strength = wave.alpha * (1 - dist / wave.maxRadius);
+        if (strength > 0.05) {
+          echo.reveal(strength);
+        }
+      }
+    }
+  }
+}
+
+// Respawn echoes that have been off-screen or dead too long
+function maintainEchoes() {
+  // Remove off-screen echoes
+  for (let i = echoes.length - 1; i >= 0; i--) {
+    if (echoes[i].x < -20 || echoes[i].x > W + 20 || echoes[i].y < -20 || echoes[i].y > H + 20) {
+      echoes.splice(i, 1);
+    }
+  }
+  // Keep count around 120
+  while (echoes.length < 120) {
+    // Spawn near edges or random
+    const edge = Math.random();
+    let x, y;
+    if (edge < 0.25) { x = Math.random() * W; y = -10; }
+    else if (edge < 0.5) { x = Math.random() * W; y = H + 10; }
+    else if (edge < 0.75) { x = -10; y = Math.random() * H; }
+    else { x = W + 10; y = Math.random() * H; }
+    echoes.push(new Echo(x, y));
+  }
+}
+
+// Depth counter
+let frame = 0;
+
+function animate() {
+  frame++;
+
+  // Fade background
+  ctx.fillStyle = 'rgba(2, 8, 8, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid (redraw occasionally since we fade)
+  if (frame % 3 === 0) drawGrid(ctx);
+
+  // Scan beam
+  drawScanBeam(ctx);
+
+  // Auto ping
+  autoPingTimer++;
+  if (autoPingTimer >= autoPingInterval) {
+    autoPingTimer = 0;
+    const px = mouseActive ? mx + (Math.random() - 0.5) * 100 : W / 2 + (Math.random() - 0.5) * 200;
+    const py = mouseActive ? my + (Math.random() - 0.5) * 100 : H / 2 + (Math.random() - 0.5) * 200;
+    waves.push(new Ping(px, py, 350 + Math.random() * 250));
+  }
+
+  // Update & draw waves
+  for (let i = waves.length - 1; i >= 0; i--) {
+    waves[i].update();
+    waves[i].draw(ctx);
+    if (!waves[i].alive) waves.splice(i, 1);
+  }
+
+  // Check collisions
+  checkCollisions();
+
+  // Update & draw echoes
+  ctx.globalCompositeOperation = 'lighter';
+  for (const echo of echoes) {
+    echo.update();
+    echo.draw(ctx);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Maintain echo population
+  if (frame % 60 === 0) maintainEchoes();
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
