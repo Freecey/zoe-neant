@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ocean Deep — Abyssal Bioluminescence</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; background: #000; cursor: none; }
+canvas { display: block; }
+#cursor {
+  position: fixed; pointer-events: none; z-index: 999;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(100,200,255,0.6), transparent);
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+  transition: width 0.3s, height 0.3s;
+}
+#depth {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  font-family: 'Courier New', monospace; font-size: 12px;
+  color: rgba(80, 160, 220, 0.4); letter-spacing: 3px;
+  pointer-events: none; z-index: 10;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cursor"></div>
+<div id="depth">0m</div>
+<script>
+// ─── Noise (self-contained Perlin) ───
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (hash, x, y, z) => {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  };
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+      return lerp(w,
+        lerp(v, lerp(u, grad(p[AA], x, y, z), grad(p[BA], x-1, y, z)),
+                lerp(u, grad(p[AB], x, y-1, z), grad(p[BB], x-1, y-1, z))),
+        lerp(v, lerp(u, grad(p[AA+1], x, y, z-1), grad(p[BA+1], x-1, y, z-1)),
+                lerp(u, grad(p[AB+1], x, y-1, z-1), grad(p[BB+1], x-1, y-1, z-1)))
+      );
+    }
+  };
+})();
+
+// ─── Setup ───
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+const depthEl = document.getElementById('depth');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let mouse = { x: W / 2, y: H / 2, active: false };
+window.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true;
+  cursor.style.left = e.clientX + 'px';
+  cursor.style.top = e.clientY + 'px';
+});
+window.addEventListener('click', e => {
+  // Spawn a pulse ring
+  pulses.push({ x: e.clientX, y: e.clientY, radius: 0, maxRadius: 200 + Math.random() * 150, life: 1 });
+  // Spawn burst plankton
+  for (let i = 0; i < 30; i++) {
+    plankton.push(new Plankton(e.clientX, e.clientY, true));
+  }
+});
+
+let time = 0;
+let depthLevel = 0; // simulated depth in meters
+
+// ─── Plankton particles ───
+class Plankton {
+  constructor(x, y, burst = false) {
+    this.x = x ?? Math.random() * W;
+    this.y = y ?? Math.random() * H;
+    if (burst) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 0.5 + Math.random() * 2;
+      this.vx = Math.cos(a) * s;
+      this.vy = Math.sin(a) * s;
+    } else {
+      this.vx = (Math.random() - 0.5) * 0.3;
+      this.vy = (Math.random() - 0.5) * 0.3;
+    }
+    this.size = 0.5 + Math.random() * 2;
+    this.life = burst ? 0.5 + Math.random() * 1.5 : 999;
+    this.maxLife = this.life;
+    this.hue = 160 + Math.random() * 60; // cyan → blue
+    this.pulse = Math.random() * Math.PI * 2;
+    this.brightness = 40 + Math.random() * 30;
+  }
+  update() {
+    const n = Noise.noise3D(this.x * 0.003, this.y * 0.003, time * 0.15);
+    const angle = n * Math.PI * 3;
+    this.vx += Math.cos(angle) * 0.02;
+    this.vy += Math.sin(angle) * 0.02;
+    // Mouse gentle attraction
+    if (mouse.active) {
+      const dx = mouse.x - this.x, dy = mouse.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 200 && dist > 1) {
+        this.vx += (dx / dist) * 0.03;
+        this.vy += (dy / dist) * 0.03;
+      }
+    }
+    this.vx *= 0.98; this.vy *= 0.98;
+    this.x += this.vx; this.y += this.vy;
+    this.pulse += 0.05;
+    this.life -= 0.016;
+    // Wrap
+    if (this.x < -10) this.x = W + 10;
+    if (this.x > W + 10) this.x = -10;
+    if (this.y < -10) this.y = H + 10;
+    if (this.y > H + 10) this.y = -10;
+    return this.life > 0;
+  }
+  draw(ctx) {
+    const alpha = Math.min(1, this.life / this.maxLife) * (0.5 + Math.sin(this.pulse) * 0.3);
+    const r = this.size + Math.sin(this.pulse) * 0.5;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 80%, ${this.brightness}%, ${alpha})`;
+    ctx.fill();
+    // Glow
+    if (r > 1) {
+      const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 4);
+      g.addColorStop(0, `hsla(${this.hue}, 90%, 70%, ${alpha * 0.3})`);
+      g.addColorStop(1, `hsla(${this.hue}, 90%, 70%, 0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(this.x - r * 4, this.y - r * 4, r * 8, r * 8);
+    }
+  }
+}
+
+// ─── Jellyfish ───
+class Jellyfish {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.size = 20 + Math.random() * 40;
+    this.vx = (Math.random() - 0.5) * 0.2;
+    this.vy = -0.1 - Math.random() * 0.3; // float upward slowly
+    this.hue = 200 + Math.random() * 80; // blue → violet
+    this.tentacles = 4 + Math.floor(Math.random() * 4);
+    this.pulsePhase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.015 + Math.random() * 0.01;
+    this.glowAlpha = 0.15 + Math.random() * 0.1;
+  }
+  update() {
+    this.pulsePhase += this.pulseSpeed;
+    const n = Noise.noise3D(this.x * 0.001, this.y * 0.001, time * 0.1);
+    this.vx += Math.cos(n * Math.PI * 2) * 0.005;
+    this.vy += Math.sin(n * Math.PI * 2) * 0.003 - 0.002; // slight upward bias
+    this.vx *= 0.995; this.vy *= 0.995;
+    this.x += this.vx; this.y += this.vy;
+    // Wrap around
+    if (this.y < -this.size * 3) { this.y = H + this.size * 3; this.x = Math.random() * W; }
+    if (this.x < -100) this.x = W + 100;
+    if (this.x > W + 100) this.x = -100;
+  }
+  draw(ctx) {
+    const pulse = Math.sin(this.pulsePhase) * 0.3 + 0.7;
+    const s = this.size * (0.8 + pulse * 0.2);
+    const cx = this.x, cy = this.y;
+
+    // Ambient glow
+    ctx.globalCompositeOperation = 'screen';
+    const ag = ctx.createRadialGradient(cx, cy, 0, cx, cy, s * 3);
+    ag.addColorStop(0, `hsla(${this.hue}, 70%, 50%, ${this.glowAlpha * pulse})`);
+    ag.addColorStop(1, `hsla(${this.hue}, 70%, 50%, 0)`);
+    ctx.fillStyle = ag;
+    ctx.fillRect(cx - s * 3, cy - s * 3, s * 6, s * 6);
+
+    // Bell (dome)
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, s * 0.9, s * 0.65 * pulse, 0, Math.PI, 0);
+    const bellGrad = ctx.createRadialGradient(cx, cy - s * 0.2, s * 0.1, cx, cy, s);
+    bellGrad.addColorStop(0, `hsla(${this.hue}, 80%, 75%, ${0.4 * pulse})`);
+    bellGrad.addColorStop(0.5, `hsla(${this.hue}, 70%, 55%, ${0.2 * pulse})`);
+    bellGrad.addColorStop(1, `hsla(${this.hue}, 60%, 40%, 0.05)`);
+    ctx.fillStyle = bellGrad;
+    ctx.fill();
+
+    // Inner glow of bell
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.1, s * 0.5, s * 0.35 * pulse, 0, Math.PI, 0);
+    ctx.fillStyle = `hsla(${this.hue - 20}, 90%, 80%, ${0.15 * pulse})`;
+    ctx.fill();
+
+    // Tentacles
+    ctx.globalCompositeOperation = 'lighter';
+    for (let t = 0; t < this.tentacles; t++) {
+      const tx = cx + (t - (this.tentacles - 1) / 2) * (s * 0.35);
+      const tentLen = s * (1.5 + Math.sin(this.pulsePhase + t) * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(tx, cy);
+      for (let seg = 0; seg < 8; seg++) {
+        const progress = (seg + 1) / 8;
+        const sx = tx + Math.sin(this.pulsePhase * 2 + t + seg * 0.8) * (8 + progress * 6);
+        const sy = cy + tentLen * progress;
+        ctx.lineTo(sx, sy);
+      }
+      ctx.strokeStyle = `hsla(${this.hue + 20}, 70%, 60%, ${0.15 * pulse * (1 - 0)})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+// ─── Deep glow orbs (ambient bioluminescence) ───
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.15;
+    this.vy = (Math.random() - 0.5) * 0.15;
+    this.radius = 40 + Math.random() * 80;
+    this.hue = 170 + Math.random() * 60;
+    this.alpha = 0.005 + Math.random() * 0.01;
+    this.pulse = Math.random() * Math.PI * 2;
+  }
+  update() {
+    this.x += this.vx; this.y += this.vy;
+    this.pulse += 0.008;
+    this.vx *= 0.998; this.vy *= 0.998;
+    if (this.x < -this.radius) this.x = W + this.radius;
+    if (this.x > W + this.radius) this.x = -this.radius;
+    if (this.y < -this.radius) this.y = H + this.radius;
+    if (this.y > H + this.radius) this.y = -this.radius;
+  }
+  draw(ctx) {
+    const r = this.radius + Math.sin(this.pulse) * 15;
+    const a = this.alpha + Math.sin(this.pulse) * 0.003;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${this.hue}, 80%, 45%, ${a})`);
+    g.addColorStop(1, `hsla(${this.hue}, 80%, 45%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
+
+// ─── Pulse rings (click effect) ───
+let pulses = [];
+
+// ─── Initialize ───
+let plankton = [];
+let jellyfish = [];
+let glowOrbs = [];
+
+for (let i = 0; i < 2500; i++) plankton.push(new Plankton());
+for (let i = 0; i < 6; i++) jellyfish.push(new Jellyfish());
+for (let i = 0; i < 60; i++) glowOrbs.push(new GlowOrb());
+
+// ─── Light shafts (from surface) ───
+class LightShaft {
+  constructor() {
+    this.x = Math.random() * W;
+    this.width = 30 + Math.random() * 80;
+    this.alpha = 0.01 + Math.random() * 0.015;
+    this.speed = 0.1 + Math.random() * 0.3;
+    this.drift = (Math.random() - 0.5) * 0.2;
+    this.phase = Math.random() * Math.PI * 2;
+  }
+  draw(ctx) {
+    const a = this.alpha * (0.5 + Math.sin(this.phase + time * this.speed) * 0.5);
+    const x = this.x + Math.sin(time * this.drift) * 30;
+    const grad = ctx.createLinearGradient(x, 0, x, H * 0.7);
+    grad.addColorStop(0, `rgba(120, 200, 255, ${a})`);
+    grad.addColorStop(0.5, `rgba(80, 160, 220, ${a * 0.3})`);
+    grad.addColorStop(1, `rgba(40, 80, 140, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(x - this.width / 2, 0);
+    ctx.lineTo(x + this.width / 2, 0);
+    ctx.lineTo(x + this.width * 1.5, H * 0.7);
+    ctx.lineTo(x - this.width, H * 0.7);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+const lightShafts = [];
+for (let i = 0; i < 5; i++) lightShafts.push(new LightShaft());
+
+// ─── Render ───
+function render() {
+  time += 0.016;
+  depthLevel = 800 + Math.sin(time * 0.02) * 200;
+  depthEl.textContent = Math.floor(depthLevel) + 'm';
+
+  // Background: deep ocean gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#020812');
+  bg.addColorStop(0.3, '#010a18');
+  bg.addColorStop(0.7, '#010610');
+  bg.addColorStop(1, '#000308');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Light shafts (subtle, from surface)
+  ctx.globalCompositeOperation = 'screen';
+  lightShafts.forEach(s => s.draw(ctx));
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Glow orbs (ambient)
+  ctx.globalCompositeOperation = 'screen';
+  glowOrbs.forEach(g => { g.update(); g.draw(ctx); });
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Jellyfish
+  jellyfish.forEach(j => { j.update(); j.draw(ctx); });
+
+  // Plankton
+  ctx.globalCompositeOperation = 'lighter';
+  plankton = plankton.filter(p => {
+    const alive = p.update();
+    if (alive) p.draw(ctx);
+    return alive;
+  });
+  // Replenish plankton
+  while (plankton.length < 2500) plankton.push(new Plankton());
+
+  // Pulse rings
+  ctx.globalCompositeOperation = 'screen';
+  pulses = pulses.filter(p => {
+    p.radius += 3;
+    p.life = 1 - p.radius / p.maxRadius;
+    if (p.life <= 0) return false;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(100, 200, 255, ${p.life * 0.3})`;
+    ctx.lineWidth = 2 * p.life;
+    ctx.stroke();
+    return true;
+  });
+
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
