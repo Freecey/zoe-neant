@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Campfire</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    overflow: hidden;
+    cursor: none;
+    font-family: 'Georgia', serif;
+  }
+  canvas { display: block; }
+  #cursor {
+    position: fixed;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,160,50,0.8), rgba(255,80,20,0) 70%);
+    pointer-events: none;
+    z-index: 100;
+    transform: translate(-50%, -50%);
+    mix-blend-mode: screen;
+  }
+  #hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(200, 170, 140, 0.4);
+    font-size: 13px;
+    letter-spacing: 2px;
+    z-index: 50;
+    transition: opacity 3s;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">move to warm your hands — click to spark</div>
+<canvas id="c"></canvas>
+<script>
+// === Perlin Noise (compact) ===
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [perm[i], perm[j]] = [perm[j], perm[i]]; }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + t * (b - a);
+  const grad = (hash, x, y) => { const h = hash & 3; return ((h & 1) ? -x : x) + ((h & 2) ? -y : y); };
+  return {
+    noise2D(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      x -= Math.floor(x); y -= Math.floor(y);
+      const u = fade(x), v = fade(y);
+      const a = p[X] + Y, b = p[X + 1] + Y;
+      return lerp(lerp(grad(p[a], x, y), grad(p[b], x - 1, y), u),
+                   lerp(grad(p[a + 1], x, y - 1), grad(p[b + 1], x - 1, y - 1), u), v);
+    },
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const a = p[X] + Y, aa = p[a] + Z, ab = p[a + 1] + Z;
+      const b = p[X + 1] + Y, ba = p[b] + Z, bb = p[b + 1] + Z;
+      return lerp(
+        lerp(lerp(grad(p[aa], x, y, z), grad(p[ba], x-1, y, z), u),
+             lerp(grad(p[ab], x, y-1, z), grad(p[bb], x-1, y-1, z), u), v),
+        lerp(lerp(grad(p[aa+1], x, y, z-1), grad(p[ba+1], x-1, y, z-1), u),
+             lerp(grad(p[ab+1], x, y-1, z-1), grad(p[bb+1], x-1, y-1, z-1), u), v), w);
+    }
+  };
+  function grad(hash, x, y, z) {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  }
+})();
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, time = 0;
+let mouseX = -1000, mouseY = -1000;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Cursor
+const cursorEl = document.getElementById('cursor');
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+document.addEventListener('mouseleave', () => { mouseX = -1000; mouseY = -1000; });
+
+// Hide hint after 6s
+setTimeout(() => { document.getElementById('hint').style.opacity = '0'; }, 6000);
+
+// === STARS ===
+const stars = [];
+for (let i = 0; i < 250; i++) {
+  stars.push({
+    x: Math.random() * 3000,
+    y: Math.random() * (H * 0.55),
+    r: 0.3 + Math.random() * 1.5,
+    twinkleSpeed: 0.5 + Math.random() * 2,
+    twinklePhase: Math.random() * Math.PI * 2,
+    brightness: 0.3 + Math.random() * 0.7
+  });
+}
+
+// === FIREFLIES ===
+const fireflies = [];
+for (let i = 0; i < 15; i++) {
+  fireflies.push({
+    x: Math.random() * 2000,
+    y: H * 0.3 + Math.random() * H * 0.4,
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: (Math.random() - 0.5) * 0.3,
+    phase: Math.random() * Math.PI * 2,
+    glowSpeed: 0.3 + Math.random() * 0.7,
+    brightness: 0
+  });
+}
+
+// === CAMPFIRE ===
+const fireX = W / 2;
+const fireBaseY = H * 0.72;
+
+// Ember particles (sparks)
+const embers = [];
+class Ember {
+  constructor(x, y, burst = false) {
+    this.x = x; this.y = y;
+    const angle = burst ? Math.random() * Math.PI * 2 : -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+    const speed = burst ? 2 + Math.random() * 5 : 0.5 + Math.random() * 2.5;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1;
+    this.decay = burst ? 0.02 + Math.random() * 0.03 : 0.005 + Math.random() * 0.015;
+    this.size = burst ? 1 + Math.random() * 2.5 : 0.5 + Math.random() * 2;
+    this.hue = 15 + Math.random() * 30; // orange-yellow
+    this.trail = [];
+  }
+  update() {
+    this.trail.push({ x: this.x, y: this.y, life: this.life });
+    if (this.trail.length > 8) this.trail.shift();
+    this.vy -= 0.02; // rise
+    this.vx += (Math.random() - 0.5) * 0.1;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= this.decay;
+    return this.life > 0;
+  }
+  draw(ctx) {
+    // Trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = this.trail[i];
+      const a = (i / this.trail.length) * this.life * 0.3;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, this.size * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${this.hue}, 100%, 70%, ${a})`;
+      ctx.fill();
+    }
+    // Core
+    const glow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 3);
+    glow.addColorStop(0, `hsla(${this.hue}, 100%, 90%, ${this.life * 0.9})`);
+    glow.addColorStop(0.4, `hsla(${this.hue}, 100%, 60%, ${this.life * 0.4})`);
+    glow.addColorStop(1, `hsla(${this.hue}, 100%, 40%, 0)`);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+  }
+}
+
+// Fire core particles
+const fireParticles = [];
+class FireParticle {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x = fireX + (Math.random() - 0.5) * 40;
+    this.y = fireBaseY;
+    this.vx = (Math.random() - 0.5) * 0.8;
+    this.vy = -(1.5 + Math.random() * 3);
+    this.life = 1;
+    this.maxLife = 0.4 + Math.random() * 0.6;
+    this.size = 8 + Math.random() * 20;
+  }
+  update() {
+    const n = Noise.noise2D(this.x * 0.01, time * 2);
+    this.vx += n * 0.3;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= 0.02;
+    this.size *= 0.98;
+    if (this.life <= 0) this.reset();
+  }
+  draw(ctx) {
+    const intensity = this.life / this.maxLife;
+    const hue = 20 + (1 - intensity) * 20; // yellow core → orange edge
+    const light = 50 + intensity * 40;
+    const alpha = this.life * 0.15;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+    g.addColorStop(0, `hsla(${hue}, 100%, ${light}%, ${alpha})`);
+    g.addColorStop(1, `hsla(${hue}, 100%, ${light * 0.5}%, 0)`);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+}
+
+for (let i = 0; i < 60; i++) {
+  const fp = new FireParticle();
+  fp.life = Math.random(); // stagger
+  fireParticles.push(fp);
+}
+
+// Smoke particles
+const smokeParticles = [];
+class Smoke {
+  constructor() {
+    this.x = fireX + (Math.random() - 0.5) * 20;
+    this.y = fireBaseY - 30 - Math.random() * 20;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = -(0.3 + Math.random() * 0.8);
+    this.life = 1;
+    this.size = 5 + Math.random() * 15;
+    this.maxSize = 30 + Math.random() * 40;
+  }
+  update() {
+    const n = Noise.noise2D(this.x * 0.005, time * 0.5);
+    this.vx += n * 0.05;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= 0.005;
+    this.size += (this.maxSize - this.size) * 0.01;
+    return this.life > 0;
+  }
+  draw(ctx) {
+    const alpha = this.life * 0.03;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(120, 110, 100, ${alpha})`;
+    ctx.fill();
+  }
+}
+
+// Ground / logs
+function drawGround(ctx) {
+  // Ground gradient
+  const grd = ctx.createLinearGradient(0, H * 0.7, 0, H);
+  grd.addColorStop(0, '#0d0d0a');
+  grd.addColorStop(0.3, '#1a1510');
+  grd.addColorStop(1, '#0f0d08');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, H * 0.7, W, H * 0.3);
+
+  // Stones circle
+  const stones = [
+    { dx: -55, dy: 10, rx: 14, ry: 10 },
+    { dx: -40, dy: 18, rx: 12, ry: 9 },
+    { dx: -20, dy: 22, rx: 13, ry: 8 },
+    { dx: 0, dy: 24, rx: 12, ry: 9 },
+    { dx: 20, dy: 22, rx: 14, ry: 8 },
+    { dx: 40, dy: 18, rx: 11, ry: 10 },
+    { dx: 55, dy: 10, rx: 13, ry: 9 },
+    { dx: -60, dy: 0, rx: 10, ry: 12 },
+    { dx: 60, dy: 0, rx: 11, ry: 11 },
+  ];
+  stones.forEach(s => {
+    const sx = fireX + s.dx;
+    const sy = fireBaseY + s.dy;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, s.rx, s.ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#2a2520';
+    ctx.fill();
+    // Highlight
+    ctx.beginPath();
+    ctx.ellipse(sx - 2, sy - 2, s.rx * 0.7, s.ry * 0.6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#352f28';
+    ctx.fill();
+    // Fire glow on stone
+    const distToFire = Math.hypot(s.dx, s.dy);
+    const glowIntensity = Math.max(0, 1 - distToFire / 80) * 0.15;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 2, s.rx + 4, s.ry + 3, 0, Math.PI, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 120, 40, ${glowIntensity})`;
+    ctx.fill();
+  });
+
+  // Logs
+  ctx.save();
+  ctx.translate(fireX, fireBaseY);
+
+  // Log 1
+  ctx.save();
+  ctx.rotate(-0.4);
+  ctx.fillStyle = '#2d1f0e';
+  ctx.beginPath();
+  ctx.roundRect(-50, -5, 100, 12, 6);
+  ctx.fill();
+  ctx.fillStyle = '#3d2a14';
+  ctx.beginPath();
+  ctx.roundRect(-48, -4, 96, 4, 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Log 2
+  ctx.save();
+  ctx.rotate(0.35);
+  ctx.fillStyle = '#261a0a';
+  ctx.beginPath();
+  ctx.roundRect(-45, -4, 90, 10, 5);
+  ctx.fill();
+  ctx.fillStyle = '#362510';
+  ctx.beginPath();
+  ctx.roundRect(-43, -3, 86, 3, 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Log 3 (crossing)
+  ctx.save();
+  ctx.rotate(0.1);
+  ctx.fillStyle = '#301e0c';
+  ctx.beginPath();
+  ctx.roundRect(-35, -8, 70, 10, 5);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// Ambient fire glow
+function drawFireGlow(ctx) {
+  const flicker = 0.8 + Noise.noise2D(time * 3, 0) * 0.2;
+  // Large ambient glow
+  const g1 = ctx.createRadialGradient(fireX, fireBaseY - 20, 0, fireX, fireBaseY - 20, 300 * flicker);
+  g1.addColorStop(0, `rgba(255, 120, 30, ${0.08 * flicker})`);
+  g1.addColorStop(0.5, `rgba(255, 80, 20, ${0.03 * flicker})`);
+  g1.addColorStop(1, 'rgba(255, 60, 10, 0)');
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, W, H);
+
+  // Bright core glow
+  const g2 = ctx.createRadialGradient(fireX, fireBaseY - 15, 0, fireX, fireBaseY - 15, 60 * flicker);
+  g2.addColorStop(0, `rgba(255, 200, 80, ${0.25 * flicker})`);
+  g2.addColorStop(0.3, `rgba(255, 130, 40, ${0.15 * flicker})`);
+  g2.addColorStop(1, 'rgba(255, 80, 20, 0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(fireX - 80, fireBaseY - 80, 160, 120);
+}
+
+// Click to spark
+canvas.addEventListener('click', e => {
+  const count = 20 + Math.floor(Math.random() * 30);
+  for (let i = 0; i < count; i++) {
+    embers.push(new Ember(e.clientX, e.clientY, true));
+  }
+});
+
+// Spawn embers from fire
+let emberTimer = 0;
+
+// Tree silhouettes
+function drawTrees(ctx) {
+  ctx.fillStyle = '#0a0a0f';
+  // Left tree cluster
+  drawTree(ctx, W * 0.05, H * 0.7, 0.8);
+  drawTree(ctx, W * 0.12, H * 0.7, 1.0);
+  drawTree(ctx, W * 0.18, H * 0.7, 0.7);
+  // Right tree cluster
+  drawTree(ctx, W * 0.82, H * 0.7, 0.7);
+  drawTree(ctx, W * 0.88, H * 0.7, 1.0);
+  drawTree(ctx, W * 0.95, H * 0.7, 0.8);
+}
+
+function drawTree(ctx, x, baseY, scale) {
+  ctx.save();
+  ctx.translate(x, baseY);
+  ctx.scale(scale, scale);
+
+  // Trunk
+  ctx.fillStyle = '#0e0e14';
+  ctx.fillRect(-5, -80, 10, 80);
+
+  // Canopy layers (pine tree shape)
+  ctx.fillStyle = '#0c0c12';
+  for (let i = 0; i < 4; i++) {
+    const y = -80 - i * 35;
+    const w = 40 - i * 6;
+    ctx.beginPath();
+    ctx.moveTo(0, y - 35);
+    ctx.lineTo(-w, y);
+    ctx.lineTo(w, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// === RENDER LOOP ===
+function render() {
+  time += 0.016;
+
+  // Sky gradient
+  const skyGrd = ctx.createLinearGradient(0, 0, 0, H * 0.7);
+  skyGrd.addColorStop(0, '#050510');
+  skyGrd.addColorStop(0.4, '#0a0a1a');
+  skyGrd.addColorStop(0.7, '#0f0d14');
+  skyGrd.addColorStop(1, '#0d0d0a');
+  ctx.fillStyle = skyGrd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  stars.forEach(s => {
+    const twinkle = 0.4 + Math.sin(time * s.twinkleSpeed + s.twinklePhase) * 0.3;
+    const alpha = s.brightness * twinkle;
+    ctx.beginPath();
+    ctx.arc(s.x % W, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(220, 230, 255, ${alpha})`;
+    ctx.fill();
+    // Slight glow for bigger stars
+    if (s.r > 1) {
+      ctx.beginPath();
+      ctx.arc(s.x % W, s.y, s.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200, 220, 255, ${alpha * 0.1})`;
+      ctx.fill();
+    }
+  });
+
+  // Trees
+  drawTrees(ctx);
+
+  // Ground
+  drawGround(ctx);
+
+  // Ambient fire glow (behind fire)
+  drawFireGlow(ctx);
+
+  // Smoke (behind fire)
+  if (Math.random() < 0.15) {
+    smokeParticles.push(new Smoke());
+  }
+  for (let i = smokeParticles.length - 1; i >= 0; i--) {
+    if (!smokeParticles[i].update()) {
+      smokeParticles.splice(i, 1);
+    } else {
+      smokeParticles[i].draw(ctx);
+    }
+  }
+
+  // Fire particles
+  ctx.globalCompositeOperation = 'lighter';
+  fireParticles.forEach(fp => {
+    fp.update();
+    fp.draw(ctx);
+  });
+
+  // Fire core bright spot
+  const flicker = 0.7 + Noise.noise2D(time * 4, time * 3) * 0.3;
+  const coreGlow = ctx.createRadialGradient(fireX, fireBaseY - 10, 0, fireX, fireBaseY - 10, 25 * flicker);
+  coreGlow.addColorStop(0, `rgba(255, 240, 180, ${0.5 * flicker})`);
+  coreGlow.addColorStop(0.5, `rgba(255, 160, 60, ${0.2 * flicker})`);
+  coreGlow.addColorStop(1, 'rgba(255, 100, 30, 0)');
+  ctx.fillStyle = coreGlow;
+  ctx.fillRect(fireX - 40, fireBaseY - 40, 80, 50);
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Spawn embers
+  emberTimer++;
+  if (emberTimer > 3 + Math.random() * 8) {
+    emberTimer = 0;
+    embers.push(new Ember(
+      fireX + (Math.random() - 0.5) * 30,
+      fireBaseY - 15 - Math.random() * 20
+    ));
+  }
+
+  // Embers
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = embers.length - 1; i >= 0; i--) {
+    if (!embers[i].update()) {
+      embers.splice(i, 1);
+    } else {
+      embers[i].draw(ctx);
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Fireflies
+  fireflies.forEach(f => {
+    f.phase += f.glowSpeed * 0.016;
+    f.brightness = Math.max(0, Math.sin(f.phase) * 0.8);
+    f.x += f.vx + Noise.noise2D(f.x * 0.01, time * 0.5) * 0.3;
+    f.y += f.vy + Noise.noise2D(f.y * 0.01, time * 0.3) * 0.2;
+
+    // Wrap
+    if (f.x < -20) f.x = W + 20;
+    if (f.x > W + 20) f.x = -20;
+    if (f.y < H * 0.2) f.vy += 0.01;
+    if (f.y > H * 0.75) f.vy -= 0.01;
+
+    // Mouse repel
+    const dx = f.x - mouseX, dy = f.y - mouseY;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 100 && dist > 0) {
+      f.vx += (dx / dist) * 0.05;
+      f.vy += (dy / dist) * 0.05;
+    }
+
+    f.vx *= 0.99;
+    f.vy *= 0.99;
+
+    if (f.brightness > 0.1) {
+      ctx.globalCompositeOperation = 'lighter';
+      const glow = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, 8);
+      glow.addColorStop(0, `rgba(180, 255, 100, ${f.brightness * 0.6})`);
+      glow.addColorStop(1, 'rgba(140, 220, 60, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(220, 255, 180, ${f.brightness * 0.9})`;
+      ctx.fill();
+    }
+  });
+
+  // Heat distortion hint (very subtle horizontal wave near fire)
+  // This is a visual trick - just draw a very subtle warm overlay that shifts
+  const heatN = Noise.noise2D(time * 2, 0);
+  const heatGlow = ctx.createRadialGradient(fireX + heatN * 10, fireBaseY - 40, 10, fireX, fireBaseY, 80);
+  heatGlow.addColorStop(0, `rgba(255, 140, 50, ${0.03 + heatN * 0.01})`);
+  heatGlow.addColorStop(1, 'rgba(255, 100, 30, 0)');
+  ctx.fillStyle = heatGlow;
+  ctx.fillRect(fireX - 100, fireBaseY - 120, 200, 150);
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
