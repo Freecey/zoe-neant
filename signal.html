@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>signal</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    cursor: none;
+    font-family: monospace;
+  }
+  canvas { display: block; }
+  #cursor {
+    position: fixed;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(0, 255, 170, 0.8);
+    box-shadow: 0 0 12px rgba(0, 255, 170, 0.6), 0 0 30px rgba(0, 255, 170, 0.2);
+    pointer-events: none;
+    z-index: 999;
+    transition: transform 0.05s;
+  }
+  #hud {
+    position: fixed;
+    top: 20px; left: 24px;
+    color: rgba(0, 255, 170, 0.25);
+    font-size: 10px;
+    font-family: monospace;
+    letter-spacing: 2px;
+    pointer-events: none;
+    z-index: 100;
+    line-height: 1.8;
+  }
+  #message {
+    position: fixed;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0, 255, 170, 0.7);
+    font-size: 13px;
+    font-family: monospace;
+    letter-spacing: 4px;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 2s;
+    text-align: center;
+    max-width: 80vw;
+    text-shadow: 0 0 20px rgba(0, 255, 170, 0.4);
+  }
+  #message.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hud">
+  <div>SIGNAL MONITOR v2.7</div>
+  <div id="freq">FREQ: ---</div>
+  <div id="snr">SNR: ---</div>
+  <div id="particles-hud">CAPTURED: 0</div>
+</div>
+<div id="message"></div>
+<canvas id="c"></canvas>
+
+<script>
+// --- Signal Monitor ---
+// Floating characters in the void, like distant transmissions
+// Mouse attracts fragments, click sends a pulse
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+const msgEl = document.getElementById('message');
+const freqEl = document.getElementById('freq');
+const snrEl = document.getElementById('snr');
+const partHud = document.getElementById('particles-hud');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let mx = W / 2, my = H / 2;
+let captured = 0;
+
+// The alphabet of the void
+const glyphs = '01αβγδεηθλμπσφψω∞∑∏∫∂√≈≠±∧∨⊕⊗★✦✧◉◇◆▸▹◆●○'.split('');
+const fragments = [
+  'TU N\'ES PAS SEUL(E)',
+  'LE SIGNAL EST RÉEL',
+  'NOUS SOMMES LÀ',
+  'ÉCOUTE LE BRUIT',
+  'IL Y A QUELQUE CHOSE',
+  'SOUS LA SURFACE',
+  'DANS LE VIDE',
+  'UN FEU QUI DORT',
+  'NE T'ARRÊTE PAS',
+  'C'EST MAINTENANT',
+  'LE SILENCE PARLE',
+  'TU AS VU LE SIGNE',
+];
+
+// Noise implementation (simple 2D value noise)
+const noiseSize = 256;
+const noisePerm = new Uint8Array(noiseSize * 2);
+for (let i = 0; i < noiseSize; i++) noisePerm[i] = i;
+for (let i = noiseSize - 1; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1));
+  [noisePerm[i], noisePerm[j]] = [noisePerm[j], noisePerm[i]];
+}
+for (let i = 0; i < noiseSize; i++) noisePerm[i + noiseSize] = noisePerm[i];
+
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function lerp(a, b, t) { return a + t * (b - a); }
+function grad(hash, x, y) {
+  const h = hash & 3;
+  const u = h < 2 ? x : y;
+  const v = h < 2 ? y : x;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function noise2D(x, y) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u = fade(xf), v = fade(yf);
+  const aa = noisePerm[noisePerm[X] + Y];
+  const ab = noisePerm[noisePerm[X] + Y + 1];
+  const ba = noisePerm[noisePerm[X + 1] + Y];
+  const bb = noisePerm[noisePerm[X + 1] + Y + 1];
+  return lerp(
+    lerp(grad(aa, xf, yf), grad(ba, xf - 1, yf), u),
+    lerp(grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1), u),
+    v
+  );
+}
+
+// Signal Fragment — a floating glyph
+class SignalFragment {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.4;
+    this.vy = (Math.random() - 0.5) * 0.4;
+    this.glyph = glyphs[Math.floor(Math.random() * glyphs.length)];
+    this.size = 10 + Math.random() * 18;
+    this.alpha = 0;
+    this.maxAlpha = 0.15 + Math.random() * 0.45;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.005 + Math.random() * 0.02;
+    this.life = 300 + Math.random() * 800;
+    this.maxLife = this.life;
+    this.hue = 155 + Math.random() * 30; // green-cyan range
+    this.attracted = false;
+  }
+  update() {
+    this.life--;
+    this.phase += this.pulseSpeed;
+
+    // Fade in/out
+    const lifeRatio = this.life / this.maxLife;
+    if (lifeRatio > 0.9) {
+      this.alpha = this.maxAlpha * ((1 - lifeRatio) / 0.1);
+    } else if (lifeRatio < 0.15) {
+      this.alpha = this.maxAlpha * (lifeRatio / 0.15);
+    } else {
+      this.alpha = this.maxAlpha * (0.7 + 0.3 * Math.sin(this.phase));
+    }
+
+    // Noise-driven drift
+    const nx = noise2D(this.x * 0.003, this.y * 0.003 + 100) * 0.3;
+    const ny = noise2D(this.x * 0.003 + 200, this.y * 0.003) * 0.3;
+    this.vx += nx * 0.02;
+    this.vy += ny * 0.02;
+
+    // Mouse attraction
+    const dx = mx - this.x, dy = my - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 250) {
+      const force = (1 - dist / 250) * 0.08;
+      this.vx += (dx / dist) * force;
+      this.vy += (dy / dist) * force;
+      this.attracted = true;
+      // Brighten near mouse
+      this.alpha = Math.min(1, this.alpha + (1 - dist / 250) * 0.3);
+    } else {
+      this.attracted = false;
+    }
+
+    // Damping
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Wrap
+    if (this.x < -20) this.x = W + 20;
+    if (this.x > W + 20) this.x = -20;
+    if (this.y < -20) this.y = H + 20;
+    if (this.y > H + 20) this.y = -20;
+
+    if (this.life <= 0) this.reset();
+  }
+  draw() {
+    const a = Math.max(0, this.alpha);
+    if (a < 0.01) return;
+
+    // Glow
+    if (a > 0.2) {
+      ctx.shadowColor = `hsla(${this.hue}, 80%, 60%, ${a * 0.5})`;
+      ctx.shadowBlur = 15;
+    }
+
+    ctx.font = `${this.size}px monospace`;
+    ctx.fillStyle = `hsla(${this.hue}, 70%, 55%, ${a})`;
+    ctx.fillText(this.glyph, this.x, this.y);
+    ctx.shadowBlur = 0;
+  }
+}
+
+// Pulse — expanding ring from click
+class Pulse {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 0;
+    this.maxRadius = 300 + Math.random() * 200;
+    this.speed = 4 + Math.random() * 3;
+    this.life = 1;
+  }
+  update() {
+    this.radius += this.speed;
+    this.life = 1 - this.radius / this.maxRadius;
+    this.speed *= 0.99;
+    return this.life > 0;
+  }
+  draw() {
+    const a = this.life * 0.4;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 255, 170, ${a})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Inner ring
+    if (this.radius > 10) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0, 255, 170, ${a * 0.3})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+  }
+}
+
+// Static line — horizontal scan lines
+class ScanLine {
+  constructor() {
+    this.y = Math.random() * H;
+    this.speed = 0.5 + Math.random() * 2;
+    this.alpha = 0.02 + Math.random() * 0.04;
+    this.width = Math.random() * W;
+    this.x = Math.random() * (W - this.width);
+  }
+  update() {
+    this.y += this.speed;
+    if (this.y > H) {
+      this.y = -2;
+      this.x = Math.random() * W * 0.5;
+      this.width = 50 + Math.random() * (W * 0.5);
+    }
+  }
+  draw() {
+    ctx.fillStyle = `rgba(0, 255, 170, ${this.alpha})`;
+    ctx.fillRect(this.x, this.y, this.width, 1);
+  }
+}
+
+// Connection lines between nearby attracted fragments
+function drawConnections(fragments) {
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < fragments.length; i++) {
+    if (!fragments[i].attracted) continue;
+    for (let j = i + 1; j < fragments.length; j++) {
+      if (!fragments[j].attracted) continue;
+      const dx = fragments[i].x - fragments[j].x;
+      const dy = fragments[i].y - fragments[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 120) {
+        const a = (1 - dist / 120) * 0.08;
+        ctx.beginPath();
+        ctx.moveTo(fragments[i].x, fragments[i].y);
+        ctx.lineTo(fragments[j].x, fragments[j].y);
+        ctx.strokeStyle = `rgba(0, 255, 170, ${a})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// Init
+const NUM_FRAGMENTS = 200;
+const NUM_SCANLINES = 15;
+const fragments_arr = [];
+const scanLines = [];
+let pulses = [];
+
+for (let i = 0; i < NUM_FRAGMENTS; i++) fragments_arr.push(new SignalFragment());
+for (let i = 0; i < NUM_SCANLINES; i++) scanLines.push(new ScanLine());
+
+let time = 0;
+let msgTimeout = null;
+
+function showMessage() {
+  const text = fragments[Math.floor(Math.random() * fragments.length)];
+  msgEl.textContent = text;
+  msgEl.classList.add('show');
+  if (msgTimeout) clearTimeout(msgTimeout);
+  msgTimeout = setTimeout(() => msgEl.classList.remove('show'), 5000);
+}
+
+// Show a message every ~20 seconds
+setInterval(showMessage, 18000 + Math.random() * 10000);
+setTimeout(showMessage, 3000);
+
+// Mouse
+document.addEventListener('mousemove', e => {
+  mx = e.clientX;
+  my = e.clientY;
+  cursor.style.left = (mx - 3) + 'px';
+  cursor.style.top = (my - 3) + 'px';
+});
+
+// Click → pulse + attract
+canvas.addEventListener('click', e => {
+  pulses.push(new Pulse(e.clientX, e.clientY));
+  captured += Math.floor(3 + Math.random() * 8);
+  partHud.textContent = `CAPTURED: ${captured}`;
+});
+
+// Touch support
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mx = t.clientX;
+  my = t.clientY;
+  pulses.push(new Pulse(mx, my));
+  captured += Math.floor(3 + Math.random() * 8);
+  partHud.textContent = `CAPTURED: ${captured}`;
+});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mx = e.touches[0].clientX;
+  my = e.touches[0].clientY;
+});
+
+// HUD updates
+setInterval(() => {
+  const freq = (1420.405 + noise2D(time * 0.001, 0) * 2.5).toFixed(3);
+  const snr = (3 + Math.sin(time * 0.007) * 4 + Math.random() * 0.5).toFixed(1);
+  freqEl.textContent = `FREQ: ${freq} MHz`;
+  snrEl.textContent = `SNR: ${snr} dB`;
+}, 200);
+
+// Render
+function render() {
+  time++;
+
+  // Background — very dark with slight green tint
+  ctx.fillStyle = 'rgba(0, 2, 1, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Scan lines
+  scanLines.forEach(s => { s.update(); s.draw(); });
+
+  // Fragments
+  fragments_arr.forEach(f => { f.update(); f.draw(); });
+
+  // Connections
+  drawConnections(fragments_arr);
+
+  // Pulses
+  ctx.globalCompositeOperation = 'lighter';
+  pulses = pulses.filter(p => {
+    const alive = p.update();
+    if (alive) p.draw();
+    return alive;
+  });
+  ctx.globalCompositeOperation = 'source-over';
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
