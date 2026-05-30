@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Corallium — Deep Bioluminescence</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #010a0f; }
+canvas { display: block; cursor: none; }
+#cursor {
+  position: fixed; pointer-events: none; z-index: 999;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,255,200,0.8), transparent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 20px rgba(0,255,200,0.4), 0 0 40px rgba(0,200,255,0.2);
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cursor"></div>
+<script>
+// ═══════════════════════════════════════════════════
+// Corallium — Bioluminescent Coral Garden
+// Pure Canvas generative art — no API needed
+// ═══════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Mouse
+let mx = W / 2, my = H / 2;
+let mouseActive = false;
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY; mouseActive = true;
+  cursorEl.style.left = mx + 'px';
+  cursorEl.style.top = my + 'px';
+});
+document.addEventListener('mouseleave', () => { mouseActive = false; });
+
+// ═══════════════════════════════════════════════════
+// Simplex-like 2D/3D Noise (self-contained)
+// ═══════════════════════════════════════════════════
+const Noise = (() => {
+  const perm = new Uint8Array(512);
+  const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+
+  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = perm[X]+Y, AA = perm[A]+Z, AB = perm[A+1]+Z;
+      const B = perm[X+1]+Y, BA = perm[B]+Z, BB = perm[B+1]+Z;
+      return lerp(
+        lerp(lerp(dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z), u),
+             lerp(dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z), u), v),
+        lerp(lerp(dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1), u),
+             lerp(dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1), u), v), w);
+    },
+    noise2D(x, y) { return this.noise3D(x, y, 0); }
+  };
+})();
+
+// ═══════════════════════════════════════════════════
+// Coral Branch — recursive organic growth
+// ═══════════════════════════════════════════════════
+class CoralBranch {
+  constructor(x, y, angle, length, depth, hue) {
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.length = length;
+    this.depth = depth;
+    this.maxDepth = 6 + Math.floor(Math.random() * 3);
+    this.hue = hue;
+    this.growProgress = 0;
+    this.growSpeed = 0.003 + Math.random() * 0.004;
+    this.children = [];
+    this.spawned = false;
+    this.pulsePhase = Math.random() * Math.PI * 2;
+    this.thickness = Math.max(1, (this.maxDepth - depth) * 1.5);
+    // Slight curve
+    this.curveFactor = (Math.random() - 0.5) * 0.3;
+  }
+
+  update(time) {
+    if (this.growProgress < 1) {
+      this.growProgress = Math.min(1, this.growProgress + this.growSpeed);
+    }
+    // Spawn children when grown enough
+    if (this.growProgress > 0.7 && !this.spawned && this.depth < this.maxDepth) {
+      this.spawned = true;
+      const numChildren = this.depth < 2 ? 2 + Math.floor(Math.random() * 2) : 1 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < numChildren; i++) {
+        const spread = 0.3 + Math.random() * 0.5;
+        const childAngle = this.angle + (i - (numChildren - 1) / 2) * spread + (Math.random() - 0.5) * 0.2;
+        const childLen = this.length * (0.6 + Math.random() * 0.2);
+        const tipX = this.x + Math.cos(this.angle) * this.length * 0.7;
+        const tipY = this.y + Math.sin(this.angle) * this.length * 0.7;
+        this.children.push(new CoralBranch(
+          tipX, tipY,
+          childAngle,
+          childLen,
+          this.depth + 1,
+          this.hue + (Math.random() - 0.5) * 15
+        ));
+      }
+    }
+    this.children.forEach(c => c.update(time));
+  }
+
+  draw(ctx, time) {
+    if (this.growProgress <= 0) return;
+    const pulse = Math.sin(time * 1.5 + this.pulsePhase) * 0.15 + 0.85;
+    const currentLen = this.length * this.growProgress;
+    const endX = this.x + Math.cos(this.angle + this.curveFactor) * currentLen;
+    const endY = this.y + Math.sin(this.angle + this.curveFactor) * currentLen;
+
+    // Glow
+    const alpha = (0.3 + (this.maxDepth - this.depth) * 0.08) * pulse;
+    const glowAlpha = alpha * 0.3;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Glow layer
+    ctx.beginPath();
+    ctx.moveTo(this.x, this.y);
+    const cpX = (this.x + endX) / 2 + Math.cos(this.angle + Math.PI / 2) * this.curveFactor * 20;
+    const cpY = (this.y + endY) / 2 + Math.sin(this.angle + Math.PI / 2) * this.curveFactor * 20;
+    ctx.quadraticCurveTo(cpX, cpY, endX, endY);
+    ctx.strokeStyle = `hsla(${this.hue}, 90%, 55%, ${glowAlpha})`;
+    ctx.lineWidth = this.thickness + 4;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Core line
+    ctx.beginPath();
+    ctx.moveTo(this.x, this.y);
+    ctx.quadraticCurveTo(cpX, cpY, endX, endY);
+    ctx.strokeStyle = `hsla(${this.hue}, 85%, 65%, ${alpha})`;
+    ctx.lineWidth = this.thickness;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Tip glow when fully grown
+    if (this.growProgress > 0.9 && this.depth >= this.maxDepth - 1) {
+      const tipGlow = (this.growProgress - 0.9) * 10 * pulse;
+      const g = ctx.createRadialGradient(endX, endY, 0, endX, endY, 8 + tipGlow * 4);
+      g.addColorStop(0, `hsla(${this.hue + 20}, 100%, 80%, ${0.4 * tipGlow})`);
+      g.addColorStop(1, `hsla(${this.hue}, 90%, 50%, 0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(endX - 15, endY - 15, 30, 30);
+    }
+
+    ctx.restore();
+    this.children.forEach(c => c.draw(ctx, time));
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// Plankton — tiny floating particles
+// ═══════════════════════════════════════════════════
+class Plankton {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.size = 0.5 + Math.random() * 2;
+    this.speed = 0.1 + Math.random() * 0.4;
+    this.hue = 160 + Math.random() * 60; // cyan-green
+    this.alpha = 0.1 + Math.random() * 0.5;
+    this.drift = (Math.random() - 0.5) * 0.3;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.5 + Math.random() * 2;
+  }
+  update(time) {
+    const n = Noise.noise3D(this.x * 0.003, this.y * 0.003, time * 0.2);
+    this.x += Math.cos(n * Math.PI * 2) * this.speed + this.drift * 0.1;
+    this.y += Math.sin(n * Math.PI * 2) * this.speed * 0.5 - 0.05;
+    // Mouse attraction
+    if (mouseActive) {
+      const dx = mx - this.x, dy = my - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 150) {
+        const force = (1 - dist / 150) * 0.3;
+        this.x += dx * force * 0.02;
+        this.y += dy * force * 0.02;
+      }
+    }
+    if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) this.reset();
+  }
+  draw(ctx, time) {
+    const pulse = Math.sin(time * this.pulseSpeed + this.phase) * 0.3 + 0.7;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${this.alpha * pulse})`;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// Spore — particles that emit from coral tips
+// ═══════════════════════════════════════════════════
+class Spore {
+  constructor(x, y, hue) {
+    this.x = x; this.y = y;
+    this.vx = (Math.random() - 0.5) * 0.8;
+    this.vy = -0.5 - Math.random() * 1.5;
+    this.life = 1;
+    this.decay = 0.003 + Math.random() * 0.005;
+    this.size = 1 + Math.random() * 2;
+    this.hue = hue + (Math.random() - 0.5) * 20;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.99;
+    this.vy *= 0.995;
+    this.vy -= 0.005; // slight upward drift
+    this.life -= this.decay;
+    return this.life > 0;
+  }
+  draw(ctx) {
+    if (this.life <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 3);
+    g.addColorStop(0, `hsla(${this.hue}, 100%, 80%, ${this.life * 0.6})`);
+    g.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - this.size * 3, this.y - this.size * 3, this.size * 6, this.size * 6);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// Background glow orbs
+// ═══════════════════════════════════════════════════
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.radius = 60 + Math.random() * 120;
+    this.hue = 170 + Math.random() * 50;
+    this.alpha = 0.005 + Math.random() * 0.01;
+    this.pulse = Math.random() * Math.PI * 2;
+    this.vx = (Math.random() - 0.5) * 0.15;
+    this.vy = (Math.random() - 0.5) * 0.1;
+  }
+  update(time) {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.pulse += 0.008;
+    if (this.x < -this.radius) this.x = W + this.radius;
+    if (this.x > W + this.radius) this.x = -this.radius;
+    if (this.y < -this.radius) this.y = H + this.radius;
+    if (this.y > H + this.radius) this.y = -this.radius;
+  }
+  draw(ctx) {
+    const r = this.radius + Math.sin(this.pulse) * 15;
+    const a = this.alpha + Math.sin(this.pulse) * 0.003;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${this.hue}, 70%, 40%, ${a})`);
+    g.addColorStop(1, `hsla(${this.hue}, 70%, 20%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// Init scene
+// ═══════════════════════════════════════════════════
+const corals = [];
+const plankton = [];
+const spores = [];
+const glowOrbs = [];
+
+// Spawn coral colonies from the bottom
+function spawnCorals() {
+  corals.length = 0;
+  const numColonies = 5 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < numColonies; i++) {
+    const x = W * 0.1 + Math.random() * W * 0.8;
+    const y = H - Math.random() * 40;
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+    const len = 40 + Math.random() * 80;
+    const hue = 160 + Math.random() * 80; // cyan → magenta range
+    corals.push(new CoralBranch(x, y, angle, len, 0, hue));
+  }
+}
+spawnCorals();
+
+// Plankton
+for (let i = 0; i < 200; i++) plankton.push(new Plankton());
+
+// Glow orbs
+for (let i = 0; i < 40; i++) glowOrbs.push(new GlowOrb());
+
+// Click to create spore burst
+canvas.addEventListener('click', e => {
+  const hue = 170 + Math.random() * 60;
+  for (let i = 0; i < 30; i++) {
+    spores.push(new Spore(e.clientX, e.clientY, hue));
+  }
+});
+
+// ═══════════════════════════════════════════════════
+// Collect coral tips for spore emission
+// ═══════════════════════════════════════════════════
+function collectTips(branch, tips) {
+  if (branch.children.length === 0 && branch.growProgress > 0.9) {
+    const ex = branch.x + Math.cos(branch.angle + branch.curveFactor) * branch.length;
+    const ey = branch.y + Math.sin(branch.angle + branch.curveFactor) * branch.length;
+    tips.push({ x: ex, y: ey, hue: branch.hue });
+  }
+  branch.children.forEach(c => collectTips(c, tips));
+}
+
+// ═══════════════════════════════════════════════════
+// Render loop
+// ═══════════════════════════════════════════════════
+let time = 0;
+let sporeTimer = 0;
+
+function render() {
+  time += 0.016;
+
+  // Background fade
+  ctx.fillStyle = 'rgba(1, 10, 15, 0.08)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Glow orbs (background atmosphere)
+  ctx.globalCompositeOperation = 'screen';
+  glowOrbs.forEach(o => { o.update(time); o.draw(ctx); });
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Update & draw corals
+  corals.forEach(c => { c.update(time); c.draw(ctx, time); });
+
+  // Emit spores from tips periodically
+  sporeTimer += 0.016;
+  if (sporeTimer > 0.3) {
+    sporeTimer = 0;
+    const tips = [];
+    corals.forEach(c => collectTips(c, tips));
+    if (tips.length > 0) {
+      // Pick a random tip
+      const tip = tips[Math.floor(Math.random() * tips.length)];
+      spores.push(new Spore(tip.x, tip.y, tip.hue));
+    }
+  }
+
+  // Update & draw spores
+  for (let i = spores.length - 1; i >= 0; i--) {
+    if (!spores[i].update()) { spores.splice(i, 1); continue; }
+    spores[i].draw(ctx);
+  }
+
+  // Plankton
+  plankton.forEach(p => { p.update(time); p.draw(ctx, time); });
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
