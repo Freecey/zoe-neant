@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Silk — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0608; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 100;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,210,140,0.8), rgba(255,180,80,0) 70%);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s, height 0.3s;
+  }
+  #hint {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    color: rgba(200,180,160,0.4); font-family: Georgia, serif; font-size: 14px;
+    letter-spacing: 2px; pointer-events: none;
+    animation: fadeHint 6s ease-in forwards;
+  }
+  @keyframes fadeHint { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">move to weave · click to cut · scroll to shift colors</div>
+<canvas id="c"></canvas>
+<script>
+// ─── Perlin Noise ───
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (hash, x, y) => {
+    const h = hash & 3;
+    return ((h & 1) === 0 ? x : -x) + ((h & 2) === 0 ? y : -y);
+  };
+  return {
+    noise2D(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x), yf = y - Math.floor(y);
+      const u = fade(xf), v = fade(yf);
+      const aa = p[p[X] + Y], ab = p[p[X] + Y + 1];
+      const ba = p[p[X + 1] + Y], bb = p[p[X + 1] + Y + 1];
+      return lerp(v,
+        lerp(u, grad(aa, xf, yf), grad(ba, xf - 1, yf)),
+        lerp(u, grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1))
+      );
+    }
+  };
+})();
+
+// ─── Canvas Setup ───
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── State ───
+let mouse = { x: W / 2, y: H / 2, active: false };
+let time = 0;
+let hueShift = 0;
+let threads = [];
+let warps = [];
+let cuts = []; // sparkle effects from cuts
+const WARP_COUNT = 60;
+const MAX_THREADS = 120;
+
+// ─── Color Palettes ───
+function getThreadColor(i, t) {
+  const base = (30 + hueShift + i * 7 + t * 3) % 360;
+  const sat = 50 + Math.sin(t * 0.5 + i) * 20;
+  const light = 45 + Math.sin(t * 0.3 + i * 0.5) * 15;
+  return `hsla(${base}, ${sat}%, ${light}%, `;
+}
+
+function getWarpColor(i) {
+  const base = (25 + hueShift + i * 5) % 360;
+  return `hsla(${base}, 30%, 25%, 0.15)`;
+}
+
+// ─── Warp (vertical static threads) ───
+class Warp {
+  constructor(i) {
+    this.x = (i / WARP_COUNT) * W;
+    this.baseX = this.x;
+    this.i = i;
+  }
+  draw(ctx, t) {
+    const sway = Noise.noise2D(this.i * 0.3, t * 0.2) * 8;
+    const x = this.baseX + sway;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    // Slight curve via noise
+    for (let y = 0; y <= H; y += 40) {
+      const nx = x + Noise.noise2D(this.i * 0.5 + y * 0.005, t * 0.3) * 6;
+      ctx.lineTo(nx, y);
+    }
+    ctx.strokeStyle = getWarpColor(this.i);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+}
+
+// ─── Thread (weft threads that weave across) ───
+class Thread {
+  constructor(startX, startY, direction) {
+    this.points = [{ x: startX, y: startY }];
+    this.startX = startX;
+    this.startY = startY;
+    this.direction = direction || (Math.random() > 0.5 ? 1 : -1);
+    this.speed = 1.5 + Math.random() * 2;
+    this.progress = 0;
+    this.alive = true;
+    this.i = threads.length;
+    this.overWarp = []; // true = over, false = under for each warp crossing
+    for (let j = 0; j < WARP_COUNT; j++) {
+      this.overWarp.push(Math.random() > 0.4);
+    }
+    this.maxLen = 150 + Math.floor(Math.random() * 200);
+    this.hue = this.i;
+    this.birthTime = time;
+  }
+
+  update(t) {
+    if (!this.alive) return;
+    if (this.points.length >= this.maxLen) {
+      this.alive = false;
+      return;
+    }
+
+    const last = this.points[this.points.length - 1];
+    const angle = this.direction * Math.PI / 2 +
+      Noise.noise2D(last.x * 0.003, last.y * 0.003 + t * 0.2) * 1.2 +
+      Noise.noise2D(this.i * 0.5 + t * 0.1, this.i * 0.3) * 0.3;
+
+    // Mouse influence — threads gravitate toward cursor
+    let mx = 0, my = 0;
+    if (mouse.active) {
+      const dx = mouse.x - last.x;
+      const dy = mouse.y - last.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 300) {
+        const force = (1 - dist / 300) * 0.6;
+        mx = (dx / dist) * force;
+        my = (dy / dist) * force;
+      }
+    }
+
+    const nx = last.x + Math.cos(angle) * this.speed + mx * 3;
+    const ny = last.y + Math.sin(angle) * this.speed + my * 3;
+    this.points.push({ x: nx, y: ny });
+  }
+
+  draw(ctx, t) {
+    if (this.points.length < 2) return;
+    const age = time - this.birthTime;
+    const fadeIn = Math.min(1, age / 30);
+    const fadeOut = this.alive ? 1 : Math.max(0, 1 - (age - this.maxLen * 0.02) / 60);
+    const alpha = fadeIn * fadeOut;
+    if (alpha <= 0) return;
+
+    const baseAlpha = 0.6 + Math.sin(t * 0.4 + this.i * 0.3) * 0.15;
+    const color = getThreadColor(this.hue, t);
+
+    // Draw as smooth curve
+    ctx.beginPath();
+    ctx.moveTo(this.points[0].x, this.points[0].y);
+
+    for (let j = 1; j < this.points.length - 1; j++) {
+      const xc = (this.points[j].x + this.points[j + 1].x) / 2;
+      const yc = (this.points[j].y + this.points[j + 1].y) / 2;
+      ctx.quadraticCurveTo(this.points[j].x, this.points[j].y, xc, yc);
+    }
+    const last = this.points[this.points.length - 1];
+    ctx.lineTo(last.x, last.y);
+
+    ctx.strokeStyle = color + (baseAlpha * alpha) + ')';
+    ctx.lineWidth = 1.2 + Math.sin(t * 0.5 + this.i) * 0.4;
+    ctx.stroke();
+
+    // Glow pass
+    ctx.strokeStyle = color + (baseAlpha * alpha * 0.3) + ')';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+}
+
+// ─── Cut Sparkle ───
+class CutSparkle {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.particles = [];
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * 4;
+      this.particles.push({
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        life: 1, decay: 0.015 + Math.random() * 0.02,
+        size: 1 + Math.random() * 2
+      });
+    }
+  }
+  update() {
+    this.particles = this.particles.filter(p => {
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.97; p.vy *= 0.97;
+      p.life -= p.decay;
+      return p.life > 0;
+    });
+    return this.particles.length > 0;
+  }
+  draw(ctx, t) {
+    ctx.globalCompositeOperation = 'lighter';
+    this.particles.forEach(p => {
+      const hue = (40 + hueShift) % 360;
+      ctx.fillStyle = `hsla(${hue}, 80%, 70%, ${p.life * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+// ─── Init Warps ───
+function initWarps() {
+  warps = [];
+  for (let i = 0; i < WARP_COUNT; i++) {
+    warps.push(new Warp(i));
+  }
+}
+initWarps();
+
+// ─── Spawn threads periodically ───
+let spawnTimer = 0;
+function spawnThread() {
+  if (threads.length >= MAX_THREADS) {
+    // Remove oldest dead thread
+    const idx = threads.findIndex(t => !t.alive);
+    if (idx >= 0) threads.splice(idx, 1);
+    else return;
+  }
+  // Spawn from edges or near mouse
+  let sx, sy;
+  if (mouse.active && Math.random() > 0.3) {
+    sx = mouse.x + (Math.random() - 0.5) * 100;
+    sy = mouse.y + (Math.random() - 0.5) * 100;
+  } else {
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) { sx = 0; sy = Math.random() * H; }
+    else if (side === 1) { sx = W; sy = Math.random() * H; }
+    else if (side === 2) { sx = Math.random() * W; sy = 0; }
+    else { sx = Math.random() * W; sy = H; }
+  }
+  threads.push(new Thread(sx, sy));
+}
+
+// ─── Events ───
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true;
+  document.getElementById('cursor').style.left = e.clientX + 'px';
+  document.getElementById('cursor').style.top = e.clientY + 'px';
+});
+document.addEventListener('mouseleave', () => { mouse.active = false; });
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; mouse.active = true;
+}, { passive: false });
+document.addEventListener('touchend', () => { mouse.active = false; });
+
+document.addEventListener('click', e => {
+  // Cut nearby threads — create sparkles
+  const cutX = e.clientX, cutY = e.clientY;
+  let cut = false;
+  threads.forEach(t => {
+    if (!t.alive) return;
+    for (let i = 0; i < t.points.length; i++) {
+      const dx = t.points[i].x - cutX;
+      const dy = t.points[i].y - cutY;
+      if (dx * dx + dy * dy < 2500) { // radius 50
+        // Cut the thread — splice from here
+        t.points = t.points.slice(0, i);
+        t.alive = false;
+        cut = true;
+        break;
+      }
+    }
+  });
+  if (cut) cuts.push(new CutSparkle(cutX, cutY));
+});
+
+document.addEventListener('wheel', e => {
+  hueShift = (hueShift + (e.deltaY > 0 ? 15 : -15) + 360) % 360;
+});
+
+// ─── Seed initial threads ───
+for (let i = 0; i < 15; i++) spawnThread();
+
+// ─── Render Loop ───
+function animate() {
+  time += 0.016;
+
+  // Background fade — slow for trailing silk effect
+  ctx.fillStyle = 'rgba(10, 6, 8, 0.04)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw warps (faint vertical threads)
+  warps.forEach(w => w.draw(ctx, time));
+
+  // Spawn new threads
+  spawnTimer += 0.016;
+  if (spawnTimer > 0.8) {
+    spawnThread();
+    spawnTimer = 0;
+  }
+
+  // Extra spawn near mouse
+  if (mouse.active && Math.random() < 0.03) {
+    spawnThread();
+  }
+
+  // Update and draw threads
+  threads.forEach(t => {
+    t.update(time);
+    t.draw(ctx, time);
+  });
+
+  // Clean up fully faded threads
+  threads = threads.filter(t => t.alive || (time - t.birthTime) < t.maxLen * 0.02 + 60);
+
+  // Cut sparkles
+  cuts = cuts.filter(c => {
+    const alive = c.update();
+    if (alive) c.draw(ctx, time);
+    return alive;
+  });
+
+  // Subtle central glow
+  const gradient = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H) * 0.5);
+  const glowHue = (25 + hueShift) % 360;
+  gradient.addColorStop(0, `hsla(${glowHue}, 40%, 15%, 0.01)`);
+  gradient.addColorStop(1, 'transparent');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, H);
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// Handle resize for warps
+window.addEventListener('resize', () => {
+  initWarps();
+});
+</script>
+</body>
+</html>
