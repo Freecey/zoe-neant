@@ -3,33 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zoe ✶ — Lucioles</title>
+<title>Lucioles — Zoe ✶</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #020a04; overflow: hidden; cursor: none; }
-canvas { display: block; }
-#cursor {
-  position: fixed; pointer-events: none; z-index: 999;
-  width: 12px; height: 12px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(200,255,140,0.8) 0%, transparent 70%);
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 20px rgba(180,255,100,0.4), 0 0 40px rgba(140,220,80,0.2);
-}
-#hint {
-  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-  color: rgba(140,200,120,0.35); font: 13px 'Courier New', monospace;
-  letter-spacing: 2px; pointer-events: none;
-  animation: fadeHint 6s forwards;
-}
-@keyframes fadeHint { 0%,60%{opacity:1} 100%{opacity:0} }
+  * { margin: 0; padding: 0; }
+  body { background: #010205; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 999;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(200,255,100,0.6), transparent);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 20px rgba(180,240,80,0.3);
+  }
+  #hint {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(120,160,80,0.35); font: 11px/1 monospace;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    pointer-events: none; transition: opacity 3s;
+  }
 </style>
 </head>
 <body>
 <div id="cursor"></div>
-<div id="hint">move · click · hold to summon</div>
+<div id="hint">bouge doucement · clique pour éclater</div>
 <canvas id="c"></canvas>
 <script>
-// ── Perlin Noise (compact 2D) ──
+// ─── Perlin Noise 3D ───
 const Noise = (() => {
   const p = new Uint8Array(512);
   const perm = new Uint8Array(256);
@@ -41,270 +40,221 @@ const Noise = (() => {
   for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
   const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
   const lerp = (a, b, t) => a + t * (b - a);
-  const grad = (hash, x, y) => {
-    const h = hash & 3;
-    return ((h & 1) ? -x : x) + ((h & 2) ? -y : y);
+  const grad = (hash, x, y, z) => {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
   };
   return {
-    noise2D(x, y) {
-      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
-      x -= Math.floor(x); y -= Math.floor(y);
-      const u = fade(x), v = fade(y);
-      const a = p[X] + Y, b = p[X + 1] + Y;
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
       return lerp(
-        lerp(grad(p[a], x, y), grad(p[b], x - 1, y), u),
-        lerp(grad(p[a + 1], x, y - 1), grad(p[b + 1], x - 1, y - 1), u), v
-      );
-    }
+        lerp(lerp(grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z), u),
+             lerp(grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z), u), v),
+        lerp(lerp(grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1), u),
+             lerp(grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1), u), v), w);
+    },
+    noise2D(x, y) { return this.noise3D(x, y, 0); }
   };
 })();
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+const hintEl = document.getElementById('hint');
+
 let W, H;
-
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
 resize();
-window.addEventListener('resize', resize);
+addEventListener('resize', resize);
 
-// ── Mouse ──
-let mx = W / 2, my = H / 2, mdown = false;
-const cursor = document.getElementById('cursor');
-document.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  cursor.style.left = mx + 'px'; cursor.style.top = my + 'px';
+let mx = W / 2, my = H / 2, mouseActive = false;
+addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY; mouseActive = true;
+  cursorEl.style.left = mx + 'px';
+  cursorEl.style.top = my + 'px';
+  if (hintEl.style.opacity !== '0') hintEl.style.opacity = '0';
 });
-document.addEventListener('mousedown', () => mdown = true);
-document.addEventListener('mouseup', () => mdown = false);
-document.addEventListener('touchstart', e => {
-  mdown = true;
-  mx = e.touches[0].clientX; my = e.touches[0].clientY;
-});
-document.addEventListener('touchmove', e => {
-  mx = e.touches[0].clientX; my = e.touches[0].clientY;
-});
-document.addEventListener('touchend', () => mdown = false);
+addEventListener('touchmove', e => {
+  e.preventDefault();
+  mx = e.touches[0].clientX; my = e.touches[0].clientY; mouseActive = true;
+}, { passive: false });
 
-// ── Trees (silhouettes) ──
-class Tree {
-  constructor() {
-    this.x = Math.random() * W;
-    this.baseY = H * (0.75 + Math.random() * 0.2);
-    this.height = 120 + Math.random() * 250;
-    this.width = 30 + Math.random() * 60;
-    this.layer = Math.random(); // 0=far, 1=near
-  }
-  draw(ctx) {
-    const darkness = 0.03 + this.layer * 0.04;
-    ctx.fillStyle = `rgba(5,20,8,${darkness + 0.15})`;
-    // trunk
-    const tw = 4 + this.layer * 6;
-    ctx.fillRect(this.x - tw/2, this.baseY - this.height * 0.3, tw, this.height * 0.3 + 20);
-    // canopy layers
-    const layers = 3 + Math.floor(this.layer * 2);
-    for (let i = 0; i < layers; i++) {
-      const ly = this.baseY - this.height * 0.2 - (i / layers) * this.height * 0.8;
-      const lw = this.width * (1 - i * 0.15) * (0.5 + this.layer * 0.5);
-      const lh = this.height * 0.25;
-      ctx.beginPath();
-      ctx.moveTo(this.x - lw/2, ly);
-      ctx.quadraticCurveTo(this.x - lw * 0.1, ly - lh, this.x, ly - lh * 1.1);
-      ctx.quadraticCurveTo(this.x + lw * 0.1, ly - lh, this.x + lw/2, ly);
-      ctx.fill();
-    }
-  }
-}
+// ─── Config ───
+const COUNT = 500;
+const NS = 0.0015; // noise scale
+const REPEL_RADIUS = 180;
+const BURST_RADIUS = 250;
 
-// ── Firefly ──
+// ─── Firefly ───
 class Firefly {
-  constructor(x, y, summoned = false) {
-    this.x = x || Math.random() * W;
-    this.y = y || H * (0.2 + Math.random() * 0.6);
-    this.vx = (Math.random() - 0.5) * 0.5;
-    this.vy = (Math.random() - 0.5) * 0.5;
-    this.baseHue = 80 + Math.random() * 60; // yellow-green spectrum
-    this.size = 2 + Math.random() * 2.5;
+  constructor(x, y, burst) {
+    this.x = x ?? Math.random() * W;
+    this.y = y ?? Math.random() * H;
+    this.burst = !!burst;
+    if (burst) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 5;
+      this.vx = Math.cos(a) * sp;
+      this.vy = Math.sin(a) * sp;
+      this.life = 0.5 + Math.random() * 1.2;
+    } else {
+      this.vx = 0; this.vy = 0;
+      this.life = Infinity;
+    }
+    this.baseHue = 55 + Math.random() * 50; // warm yellow-green
     this.pulsePhase = Math.random() * Math.PI * 2;
-    this.pulseSpeed = 0.015 + Math.random() * 0.025;
+    this.pulseSpeed = 0.02 + Math.random() * 0.04;
+    this.size = 1.2 + Math.random() * 2.2;
     this.brightness = 0;
-    this.targetBright = 0.5 + Math.random() * 0.5;
-    this.noiseOffX = Math.random() * 1000;
-    this.noiseOffY = Math.random() * 1000;
-    this.wanderAngle = Math.random() * Math.PI * 2;
-    this.life = summoned ? 0 : 1;
-    this.maxLife = summoned ? (600 + Math.random() * 600) : Infinity;
-    this.age = 0;
-    this.summoned = summoned;
   }
-
-  update(time, dt) {
-    this.age++;
-    if (this.summoned) {
-      this.life = Math.max(0, 1 - this.age / this.maxLife);
-      if (this.life <= 0) return false;
+  update(t) {
+    if (this.burst) {
+      this.x += this.vx; this.y += this.vy;
+      this.vx *= 0.97; this.vy *= 0.97;
+      this.life -= 0.016;
+      this.brightness = Math.max(0, this.life) * 0.9;
+      return this.life > 0;
     }
-
     // Noise-driven wandering
-    const n = Noise.noise2D(
-      this.x * 0.002 + this.noiseOffX + time * 0.15,
-      this.y * 0.002 + this.noiseOffY + time * 0.12
-    );
-    this.wanderAngle += n * 0.08;
-    this.vx += Math.cos(this.wanderAngle) * 0.03;
-    this.vy += Math.sin(this.wanderAngle) * 0.03;
-
-    // Mouse interaction
-    const dx = mx - this.x, dy = my - this.y;
+    const n = Noise.noise3D(this.x * NS, this.y * NS, t * 0.15);
+    const angle = n * Math.PI * 4;
+    const speed = 0.4 + (n + 1) * 0.3;
+    this.vx += Math.cos(angle) * speed * 0.15;
+    this.vy += Math.sin(angle) * speed * 0.15;
+    // Mouse repulsion (gentle)
+    const dx = this.x - mx, dy = this.y - my;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 200) {
-      const force = mdown ? 0.12 : 0.04;
-      const dir = mdown ? 1 : -0.3; // attract when clicking, gentle repel otherwise
-      this.vx += (dx / dist) * force * dir;
-      this.vy += (dy / dist) * force * dir;
+    if (dist < REPEL_RADIUS && dist > 0) {
+      const force = (1 - dist / REPEL_RADIUS) * 1.2;
+      this.vx += (dx / dist) * force;
+      this.vy += (dy / dist) * force;
     }
-
     // Damping
-    this.vx *= 0.96;
-    this.vy *= 0.96;
-
-    this.x += this.vx;
-    this.y += this.vy;
-
-    // Soft bounds
-    if (this.x < -50) this.x = W + 50;
-    if (this.x > W + 50) this.x = -50;
-    if (this.y < -50) this.y = H + 50;
-    if (this.y > H + 50) this.y = -50;
-
-    // Pulsing brightness
+    this.vx *= 0.92; this.vy *= 0.92;
+    this.x += this.vx; this.y += this.vy;
+    // Wrap
+    if (this.x < -20) this.x = W + 20;
+    if (this.x > W + 20) this.x = -20;
+    if (this.y < -20) this.y = H + 20;
+    if (this.y > H + 20) this.y = -20;
+    // Pulsing glow
     this.pulsePhase += this.pulseSpeed;
-    const pulse = (Math.sin(this.pulsePhase) * 0.5 + 0.5);
-    // Fireflies flash in bursts, not smooth sine
-    const flash = pulse > 0.7 ? (pulse - 0.7) / 0.3 : 0;
-    this.targetBright = 0.1 + flash * 0.9;
-    this.brightness += (this.targetBright * this.life - this.brightness) * 0.08;
-
+    const pulse = (Math.sin(this.pulsePhase) + 1) * 0.5;
+    this.brightness = 0.15 + pulse * 0.7;
+    // Occasionally sync pulse with neighbors (simulated via noise)
+    const sync = Noise.noise2D(this.x * 0.01, t * 0.5);
+    if (sync > 0.3) this.brightness *= 1.3;
     return true;
   }
-
   draw(ctx) {
-    if (this.brightness < 0.01) return;
     const a = this.brightness;
-    const r = this.size * (1 + a * 1.5);
-
+    if (a < 0.02) return;
+    const hue = this.baseHue;
     // Outer glow
-    const g1 = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 8);
-    g1.addColorStop(0, `hsla(${this.baseHue}, 90%, 70%, ${a * 0.25})`);
-    g1.addColorStop(0.3, `hsla(${this.baseHue}, 80%, 55%, ${a * 0.08})`);
-    g1.addColorStop(1, `hsla(${this.baseHue}, 80%, 40%, 0)`);
-    ctx.fillStyle = g1;
-    ctx.fillRect(this.x - r * 8, this.y - r * 8, r * 16, r * 16);
-
+    const r = this.size * (4 + a * 6);
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${hue}, 90%, 70%, ${a * 0.35})`);
+    g.addColorStop(0.4, `hsla(${hue}, 80%, 50%, ${a * 0.12})`);
+    g.addColorStop(1, `hsla(${hue}, 70%, 40%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
     // Core
-    const g2 = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
-    g2.addColorStop(0, `hsla(${this.baseHue + 10}, 100%, 95%, ${a * 0.9})`);
-    g2.addColorStop(0.5, `hsla(${this.baseHue}, 90%, 65%, ${a * 0.5})`);
-    g2.addColorStop(1, `hsla(${this.baseHue}, 80%, 50%, 0)`);
-    ctx.fillStyle = g2;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.arc(this.x, this.y, this.size * (0.5 + a * 0.8), 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue + 10}, 60%, 90%, ${a * 0.9})`;
     ctx.fill();
   }
 }
 
-// ── Stars ──
-const stars = Array.from({length: 120}, () => ({
-  x: Math.random() * W, y: Math.random() * H * 0.5,
-  size: 0.3 + Math.random() * 1.2,
-  twinkle: Math.random() * Math.PI * 2,
-  speed: 0.005 + Math.random() * 0.02
-}));
+// ─── Glow Orbs (background atmosphere) ───
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W; this.y = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.2;
+    this.vy = (Math.random() - 0.5) * 0.2;
+    this.radius = 60 + Math.random() * 120;
+    this.hue = 50 + Math.random() * 70;
+    this.alpha = 0.005 + Math.random() * 0.01;
+    this.pulse = Math.random() * Math.PI * 2;
+  }
+  update() {
+    this.x += this.vx; this.y += this.vy;
+    this.vx += (Math.random() - 0.5) * 0.005;
+    this.vy += (Math.random() - 0.5) * 0.005;
+    this.vx *= 0.995; this.vy *= 0.995;
+    this.pulse += 0.008;
+    if (this.x < -100) this.x = W + 100;
+    if (this.x > W + 100) this.x = -100;
+    if (this.y < -100) this.y = H + 100;
+    if (this.y > H + 100) this.y = -100;
+  }
+  draw(ctx) {
+    const r = this.radius + Math.sin(this.pulse) * 15;
+    const a = this.alpha + Math.sin(this.pulse) * 0.003;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${this.hue}, 70%, 40%, ${a})`);
+    g.addColorStop(1, `hsla(${this.hue}, 60%, 30%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
 
-// ── Init ──
-const trees = Array.from({length: 35}, () => new Tree()).sort((a, b) => a.layer - b.layer);
-let fireflies = Array.from({length: 50}, () => new Firefly());
+// ─── Init ───
+let fireflies = [];
+for (let i = 0; i < COUNT; i++) fireflies.push(new Firefly());
+const orbs = [];
+for (let i = 0; i < 40; i++) orbs.push(new GlowOrb());
+
+// ─── Click: burst ───
+addEventListener('click', e => {
+  const cx = e.clientX, cy = e.clientY;
+  // Repel nearby fireflies strongly
+  fireflies.forEach(f => {
+    if (f.burst) return;
+    const dx = f.x - cx, dy = f.y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < BURST_RADIUS && dist > 0) {
+      const force = (1 - dist / BURST_RADIUS) * 6;
+      f.vx += (dx / dist) * force;
+      f.vy += (dy / dist) * force;
+    }
+  });
+  // Spawn burst particles
+  for (let i = 0; i < 35; i++) {
+    fireflies.push(new Firefly(cx, cy, true));
+  }
+});
+
+// ─── Render ───
 let time = 0;
-
-// Spawn on click
-canvas.addEventListener('click', e => {
-  const count = 5 + Math.floor(Math.random() * 8);
-  for (let i = 0; i < count; i++) {
-    fireflies.push(new Firefly(
-      e.clientX + (Math.random() - 0.5) * 60,
-      e.clientY + (Math.random() - 0.5) * 60,
-      true
-    ));
-  }
-});
-
-// ── Render ──
-function draw() {
-  time += 0.01;
-
-  // Sky gradient
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#010508');
-  sky.addColorStop(0.4, '#020a06');
-  sky.addColorStop(0.7, '#031208');
-  sky.addColorStop(1, '#040e0a');
-  ctx.fillStyle = sky;
+function frame() {
+  time += 0.016;
+  // Fade (creates subtle trails)
+  ctx.fillStyle = 'rgba(1, 2, 5, 0.12)';
   ctx.fillRect(0, 0, W, H);
 
-  // Stars
-  stars.forEach(s => {
-    s.twinkle += s.speed;
-    const a = 0.3 + (Math.sin(s.twinkle) * 0.5 + 0.5) * 0.5;
-    ctx.fillStyle = `rgba(200,220,255,${a})`;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  // Glow orbs
+  ctx.globalCompositeOperation = 'screen';
+  orbs.forEach(o => { o.update(); o.draw(ctx); });
 
-  // Distant haze
-  const haze = ctx.createRadialGradient(W * 0.5, H * 0.6, 0, W * 0.5, H * 0.6, W * 0.6);
-  haze.addColorStop(0, 'rgba(20,60,30,0.04)');
-  haze.addColorStop(1, 'transparent');
-  ctx.fillStyle = haze;
-  ctx.fillRect(0, 0, W, H);
-
-  // Trees (background layer)
-  trees.forEach(t => t.draw(ctx));
-
-  // Ground fog
-  const fog = ctx.createLinearGradient(0, H * 0.75, 0, H);
-  fog.addColorStop(0, 'transparent');
-  fog.addColorStop(0.5, 'rgba(10,25,15,0.15)');
-  fog.addColorStop(1, 'rgba(8,18,10,0.3)');
-  ctx.fillStyle = fog;
-  ctx.fillRect(0, H * 0.75, W, H * 0.25);
-
-  // Fireflies (additive blending for glow)
+  // Fireflies
   ctx.globalCompositeOperation = 'lighter';
-  fireflies = fireflies.filter(f => f.update(time, 1));
-  fireflies.forEach(f => f.draw(ctx));
-  ctx.globalCompositeOperation = 'source-over';
-
-  // Spawn fireflies if population low
-  if (fireflies.length < 40 && Math.random() < 0.02) {
-    fireflies.push(new Firefly());
-  }
-
-  requestAnimationFrame(draw);
-}
-
-draw();
-
-// Resize trees
-window.addEventListener('resize', () => {
-  trees.forEach(t => {
-    t.x = Math.random() * W;
-    t.baseY = H * (0.75 + Math.random() * 0.2);
+  fireflies = fireflies.filter(f => {
+    const alive = f.update(time);
+    if (alive) f.draw(ctx);
+    return alive;
   });
-  stars.forEach(s => { s.x = Math.random() * W; s.y = Math.random() * H * 0.5; });
-});
+
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(frame);
+}
+frame();
 </script>
 </body>
 </html>
