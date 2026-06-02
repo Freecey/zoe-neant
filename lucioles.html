@@ -3,320 +3,353 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lucioles</title>
+<title>Lucioles — Zoe ✶</title>
 <style>
-* { margin: 0; padding: 0; }
-body { background: #030a04; overflow: hidden; cursor: none; }
-canvas { display: block; }
-#cursor {
-  position: fixed; pointer-events: none; z-index: 999;
-  width: 20px; height: 20px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(200,255,120,0.35) 0%, transparent 70%);
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 30px 8px rgba(180,240,80,0.08);
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+canvas { display: block; cursor: none; }
 </style>
 </head>
 <body>
-<div id="cursor"></div>
 <canvas id="c"></canvas>
 <script>
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-const cursor = document.getElementById('cursor');
-let W, H;
-
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
-
-// --- Perlin Noise (self-contained) ---
+// ——— Perlin Noise (self-contained) ———
 const Noise = (() => {
-  const perm = new Uint8Array(512);
-  const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
-  function seed(s) {
-    const p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    for (let i = 255; i > 0; i--) {
-      s = (s * 16807 + 0) % 2147483647;
-      const j = s % (i + 1);
-      [p[i], p[j]] = [p[j], p[i]];
-    }
-    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
   }
-  seed(Date.now());
-  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
-  function fade(t) { return t*t*t*(t*(t*6-15)+10); }
-  function lerp(a, b, t) { return a + t*(b - a); }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + t * (b - a);
+  const grad = (hash, x, y) => {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  };
   return {
-    noise3D(x, y, z) {
-      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
-      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
-      const u = fade(x), v = fade(y), w = fade(z);
-      const A = perm[X]+Y, AA = perm[A]+Z, AB = perm[A+1]+Z;
-      const B = perm[X+1]+Y, BA = perm[B]+Z, BB = perm[B+1]+Z;
-      return lerp(lerp(lerp(dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z),u),
-                         lerp(dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z),u),v),
-                   lerp(lerp(dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1),u),
-                         lerp(dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1),u),v),w);
+    noise2D(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x), yf = y - Math.floor(y);
+      const u = fade(xf), v = fade(yf);
+      const a = p[X] + Y, b = p[X + 1] + Y;
+      return lerp(
+        lerp(grad(p[a], xf, yf), grad(p[b], xf - 1, yf), u),
+        lerp(grad(p[a + 1], xf, yf - 1), grad(p[b + 1], xf - 1, yf - 1), u), v
+      );
     }
   };
 })();
 
-// --- Firefly ---
-const COUNT = 220;
-const NOISE_SCALE = 0.003;
-const fireflies = [];
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, waterY, time = 0;
+let mouse = { x: -1000, y: -1000 };
 
-let mouseX = W / 2, mouseY = H / 2;
-let mouseActive = false;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  waterY = H * 0.62;
+}
+resize();
+window.addEventListener('resize', resize);
 
-class Firefly {
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+canvas.addEventListener('mouseleave', () => {
+  mouse.x = -1000;
+  mouse.y = -1000;
+});
+
+// ——— Stars ———
+class Star {
   constructor() {
     this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.vx = 0; this.vy = 0;
-    this.speed = 0.3 + Math.random() * 0.5;
-    // blink cycle
+    this.y = Math.random() * waterY;
+    this.r = 0.3 + Math.random() * 1.2;
+    this.twinkleSpeed = 0.01 + Math.random() * 0.03;
     this.phase = Math.random() * Math.PI * 2;
-    this.blinkSpeed = 0.008 + Math.random() * 0.015;
-    this.blinkMin = 0.02 + Math.random() * 0.05;
-    this.blinkMax = 0.7 + Math.random() * 0.3;
-    // visual
-    this.size = 1.5 + Math.random() * 2.5;
-    this.hue = 75 + Math.random() * 45; // yellow-green range
-    this.glowSize = 12 + Math.random() * 20;
-    // noise offset for uniqueness
-    this.nOff = Math.random() * 1000;
   }
+  draw(ctx, t) {
+    const alpha = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * this.twinkleSpeed * 60 + this.phase));
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(200, 210, 240, ${alpha})`;
+    ctx.fill();
+  }
+}
 
-  update(time) {
-    // Perlin noise direction
-    const n = Noise.noise3D(this.x * NOISE_SCALE + this.nOff, this.y * NOISE_SCALE, time * 0.2);
-    let angle = n * Math.PI * 4;
+// ——— Grass blades ———
+class Grass {
+  constructor(x) {
+    this.x = x;
+    this.baseY = waterY + Math.random() * 4;
+    this.height = 25 + Math.random() * 55;
+    this.width = 1 + Math.random() * 2;
+    this.sway = 0.3 + Math.random() * 0.6;
+    this.phase = Math.random() * Math.PI * 2;
+    this.hue = 100 + Math.random() * 40;
+  }
+  draw(ctx, t) {
+    const sway = Math.sin(t * 0.8 + this.phase) * this.sway * 6;
+    const tipX = this.x + sway;
+    const tipY = this.baseY - this.height;
+    const cpX = this.x + sway * 0.5;
+    const cpY = this.baseY - this.height * 0.6;
 
-    // Mouse attraction (gentle)
-    if (mouseActive) {
-      const dx = mouseX - this.x;
-      const dy = mouseY - this.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 250 && dist > 1) {
-        const attract = 0.15 * (1 - dist / 250);
-        angle += Math.atan2(dy, dx) * attract;
-      }
+    ctx.beginPath();
+    ctx.moveTo(this.x - this.width / 2, this.baseY);
+    ctx.quadraticCurveTo(cpX - this.width * 0.3, cpY, tipX, tipY);
+    ctx.quadraticCurveTo(cpX + this.width * 0.3, cpY, this.x + this.width / 2, this.baseY);
+    ctx.fillStyle = `hsla(${this.hue}, 30%, 8%, 0.9)`;
+    ctx.fill();
+  }
+}
+
+// ——— Firefly ———
+class Firefly {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = 40 + Math.random() * (waterY - 100);
+    this.vx = (Math.random() - 0.5) * 0.8;
+    this.vy = (Math.random() - 0.5) * 0.6;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.02 + Math.random() * 0.04;
+    this.maxGlow = 0.5 + Math.random() * 0.5;
+    this.size = 2 + Math.random() * 2;
+    this.hue = 55 + Math.random() * 25; // warm yellow-green
+    this.wanderStrength = 0.15 + Math.random() * 0.2;
+  }
+  update(t) {
+    // Noise-driven wandering
+    const nx = Noise.noise2D(this.x * 0.003, t * 0.3 + this.phase) * this.wanderStrength;
+    const ny = Noise.noise2D(this.y * 0.003 + 100, t * 0.3 + this.phase) * this.wanderStrength;
+    this.vx += nx * 0.05;
+    this.vy += ny * 0.05;
+
+    // Mouse gentle repulsion
+    const dx = this.x - mouse.x;
+    const dy = this.y - mouse.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 150 && dist > 0) {
+      const force = (150 - dist) / 150 * 0.3;
+      this.vx += (dx / dist) * force;
+      this.vy += (dy / dist) * force;
     }
 
-    this.vx += Math.cos(angle) * 0.08;
-    this.vy += Math.sin(angle) * 0.08;
+    // Damping
     this.vx *= 0.96;
     this.vy *= 0.96;
-
-    const spd = Math.hypot(this.vx, this.vy);
-    if (spd > this.speed) {
-      this.vx *= this.speed / spd;
-      this.vy *= this.speed / spd;
-    }
 
     this.x += this.vx;
     this.y += this.vy;
 
-    // wrap with margin
-    const m = 60;
-    if (this.x < -m) this.x = W + m;
-    if (this.x > W + m) this.x = -m;
-    if (this.y < -m) this.y = H + m;
-    if (this.y > H + m) this.y = -m;
-
-    // blink
-    this.phase += this.blinkSpeed;
-    const wave = (Math.sin(this.phase) + 1) / 2;
-    // add organic randomness to blink via noise
-    const nBlink = (Noise.noise3D(this.nOff, time * 0.5, 0) + 1) / 2;
-    const mix = wave * 0.7 + nBlink * 0.3;
-    this.brightness = this.blinkMin + (this.blinkMax - this.blinkMin) * mix;
+    // Soft bounds
+    if (this.x < -20) this.x = W + 20;
+    if (this.x > W + 20) this.x = -20;
+    if (this.y < 20) this.vy += 0.1;
+    if (this.y > waterY - 30) this.vy -= 0.1;
   }
+  getBrightness(t) {
+    return this.maxGlow * (0.5 + 0.5 * Math.sin(t * this.pulseSpeed * 60 + this.phase));
+  }
+  draw(ctx, t) {
+    const bright = this.getBrightness(t);
+    if (bright < 0.05) return;
 
-  draw(ctx) {
-    const a = this.brightness;
-    if (a < 0.03) return;
+    const alpha = bright;
+    const glowR = this.size * (4 + bright * 12);
 
-    // outer glow
-    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.glowSize);
-    g.addColorStop(0, `hsla(${this.hue}, 90%, 75%, ${a * 0.25})`);
-    g.addColorStop(0.3, `hsla(${this.hue}, 85%, 60%, ${a * 0.08})`);
+    // Outer glow
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR);
+    g.addColorStop(0, `hsla(${this.hue}, 90%, 70%, ${alpha * 0.6})`);
+    g.addColorStop(0.3, `hsla(${this.hue}, 80%, 55%, ${alpha * 0.25})`);
     g.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
     ctx.fillStyle = g;
-    ctx.fillRect(this.x - this.glowSize, this.y - this.glowSize, this.glowSize * 2, this.glowSize * 2);
+    ctx.fillRect(this.x - glowR, this.y - glowR, glowR * 2, glowR * 2);
 
-    // core dot
+    // Core
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size * a, 0, Math.PI * 2);
-    ctx.fillStyle = `hsla(${this.hue}, 80%, 85%, ${a})`;
+    ctx.arc(this.x, this.y, this.size * (0.5 + bright * 0.5), 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 60%, 90%, ${alpha})`;
     ctx.fill();
   }
-}
+  drawReflection(ctx, t) {
+    const bright = this.getBrightness(t);
+    if (bright < 0.1) return;
 
-for (let i = 0; i < COUNT; i++) fireflies.push(new Firefly());
+    const reflY = waterY + (waterY - this.y) * 0.35;
+    const alpha = bright * 0.35;
+    const glowR = this.size * (3 + bright * 8);
 
-// --- Background trees silhouettes ---
-const trees = [];
-for (let i = 0; i < 12; i++) {
-  trees.push({
-    x: Math.random() * W,
-    h: 80 + Math.random() * 200,
-    w: 30 + Math.random() * 60,
-    layer: Math.floor(Math.random() * 3)
-  });
-}
-trees.sort((a, b) => a.layer - b.layer);
-
-function drawTrees(ctx) {
-  trees.forEach(t => {
-    const baseY = H - 10;
-    const shade = 8 + t.layer * 5;
-    ctx.fillStyle = `rgb(${shade}, ${shade + 5}, ${shade})`;
-    // trunk
-    ctx.fillRect(t.x - 4, baseY - t.h, 8, t.h);
-    // canopy triangle
-    ctx.beginPath();
-    ctx.moveTo(t.x, baseY - t.h - t.w * 1.2);
-    ctx.lineTo(t.x - t.w * 0.7, baseY - t.h * 0.3);
-    ctx.lineTo(t.x + t.w * 0.7, baseY - t.h * 0.3);
-    ctx.closePath();
-    ctx.fill();
-    // second canopy layer
-    ctx.beginPath();
-    ctx.moveTo(t.x, baseY - t.h - t.w * 0.6);
-    ctx.lineTo(t.x - t.w * 0.55, baseY - t.h * 0.55);
-    ctx.lineTo(t.x + t.w * 0.55, baseY - t.h * 0.55);
-    ctx.closePath();
-    ctx.fill();
-  });
-}
-
-// --- Ground fog ---
-function drawFog(ctx, time) {
-  const fogH = 80;
-  for (let i = 0; i < 5; i++) {
-    const y = H - fogH + i * 15;
-    const n = (Noise.noise3D(i * 10, time * 0.05, 0) + 1) / 2;
-    const a = 0.02 + n * 0.03;
-    const g = ctx.createLinearGradient(0, y, 0, y + 40);
-    g.addColorStop(0, `rgba(20, 40, 25, ${a})`);
-    g.addColorStop(1, 'rgba(20, 40, 25, 0)');
+    const g = ctx.createRadialGradient(this.x, reflY, 0, this.x, reflY, glowR);
+    g.addColorStop(0, `hsla(${this.hue}, 70%, 60%, ${alpha})`);
+    g.addColorStop(1, `hsla(${this.hue}, 70%, 50%, 0)`);
     ctx.fillStyle = g;
-    ctx.fillRect(0, y, W, 40);
+    ctx.fillRect(this.x - glowR, reflY - glowR, glowR * 2, glowR * 2);
   }
 }
 
-// --- Stars ---
-const stars = [];
-for (let i = 0; i < 120; i++) {
-  stars.push({
-    x: Math.random() * W,
-    y: Math.random() * H * 0.6,
-    size: 0.3 + Math.random() * 1.2,
-    twinkleSpeed: 0.01 + Math.random() * 0.03,
-    phase: Math.random() * Math.PI * 2
-  });
+// ——— Init ———
+const stars = Array.from({ length: 120 }, () => new Star());
+const grasses = [];
+for (let i = 0; i < W * 0.15; i++) {
+  const side = Math.random() > 0.5;
+  grasses.push(new Grass(side ? Math.random() * W * 0.15 : W - Math.random() * W * 0.15));
+  if (Math.random() < 0.3) grasses.push(new Grass(Math.random() * W));
 }
+const fireflies = Array.from({ length: 80 }, () => new Firefly());
 
-function drawStars(ctx, time) {
-  stars.forEach(s => {
-    const a = 0.15 + (Math.sin(s.phase + time * s.twinkleSpeed * 60) + 1) / 2 * 0.35;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(200, 220, 255, ${a})`;
-    ctx.fill();
-  });
-}
-
-// --- Mouse cursor glow ---
-function drawCursorGlow(ctx) {
-  if (!mouseActive) return;
-  const g = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 80);
-  g.addColorStop(0, 'rgba(180, 240, 80, 0.04)');
-  g.addColorStop(0.5, 'rgba(160, 220, 60, 0.015)');
-  g.addColorStop(1, 'rgba(140, 200, 40, 0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(mouseX - 80, mouseY - 80, 160, 160);
-}
-
-// --- Click burst ---
-let bursts = [];
+// Click spawns burst of ephemeral fireflies
 canvas.addEventListener('click', e => {
   for (let i = 0; i < 15; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 0.5 + Math.random() * 2;
-    bursts.push({
-      x: e.clientX, y: e.clientY,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 1,
-      hue: 75 + Math.random() * 45,
-      size: 1.5 + Math.random() * 2
-    });
+    const f = new Firefly();
+    f.x = e.clientX + (Math.random() - 0.5) * 30;
+    f.y = e.clientY + (Math.random() - 0.5) * 30;
+    f.vx = (Math.random() - 0.5) * 4;
+    f.vy = (Math.random() - 0.5) * 4;
+    f.maxGlow = 0.8 + Math.random() * 0.2;
+    fireflies.push(f);
   }
 });
 
-function updateBursts(ctx) {
-  bursts = bursts.filter(b => {
-    b.x += b.vx; b.y += b.vy;
-    b.vx *= 0.97; b.vy *= 0.97;
-    b.life -= 0.015;
-    if (b.life <= 0) return false;
-    const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 15 * b.life);
-    g.addColorStop(0, `hsla(${b.hue}, 85%, 70%, ${b.life * 0.4})`);
-    g.addColorStop(1, `hsla(${b.hue}, 80%, 50%, 0)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(b.x - 15, b.y - 15, 30, 30);
-    return true;
-  });
+// ——— Custom cursor ———
+function drawCursor(ctx) {
+  if (mouse.x < 0) return;
+  const g = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 20);
+  g.addColorStop(0, 'rgba(200, 230, 100, 0.3)');
+  g.addColorStop(1, 'rgba(200, 230, 100, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(mouse.x - 20, mouse.y - 20, 40, 40);
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(220, 240, 120, 0.8)';
+  ctx.fill();
 }
 
-// --- Main loop ---
-let time = 0;
-function loop() {
-  time += 0.016;
+// ——— Water surface ———
+function drawWater(ctx, t) {
+  // Base water
+  const waterGrad = ctx.createLinearGradient(0, waterY, 0, H);
+  waterGrad.addColorStop(0, 'rgba(5, 10, 20, 0.85)');
+  waterGrad.addColorStop(0.3, 'rgba(3, 8, 18, 0.92)');
+  waterGrad.addColorStop(1, 'rgba(2, 5, 12, 1)');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(0, waterY, W, H - waterY);
 
-  // Soft fade for trails
-  ctx.fillStyle = 'rgba(3, 10, 4, 0.25)';
-  ctx.fillRect(0, 0, W, H);
+  // Surface shimmer line
+  ctx.beginPath();
+  ctx.moveTo(0, waterY);
+  for (let x = 0; x <= W; x += 3) {
+    const wave = Noise.noise2D(x * 0.01, t * 0.5) * 2;
+    ctx.lineTo(x, waterY + wave);
+  }
+  ctx.strokeStyle = 'rgba(80, 120, 160, 0.15)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 
-  drawStars(ctx, time);
-  drawTrees(ctx);
-  drawFog(ctx, time);
-  drawCursorGlow(ctx);
+  // Ripple highlights
+  for (let i = 0; i < 6; i++) {
+    const rx = W * (0.1 + (i / 6) * 0.8);
+    const ry = waterY + 8 + Math.sin(t * 0.7 + i * 2) * 3;
+    const rw = 30 + Math.sin(t * 0.5 + i) * 10;
+    ctx.beginPath();
+    ctx.ellipse(rx, ry, rw, 2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(80, 130, 180, ${0.05 + 0.03 * Math.sin(t + i)})`;
+    ctx.fill();
+  }
+}
 
+// ——— Sky gradient ———
+function drawSky(ctx) {
+  const g = ctx.createLinearGradient(0, 0, 0, waterY);
+  g.addColorStop(0, '#020510');
+  g.addColorStop(0.5, '#050a18');
+  g.addColorStop(0.85, '#0a1525');
+  g.addColorStop(1, '#0c1a2a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, waterY);
+}
+
+// ——— Moon ———
+function drawMoon(ctx, t) {
+  const mx = W * 0.78, my = H * 0.12, mr = 25;
+  // Glow
+  const g = ctx.createRadialGradient(mx, my, mr * 0.5, mx, my, mr * 5);
+  g.addColorStop(0, 'rgba(200, 210, 230, 0.08)');
+  g.addColorStop(0.5, 'rgba(180, 200, 220, 0.02)');
+  g.addColorStop(1, 'rgba(180, 200, 220, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(mx - mr * 5, my - mr * 5, mr * 10, mr * 10);
+  // Moon body
+  ctx.beginPath();
+  ctx.arc(mx, my, mr, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(210, 220, 240, 0.15)';
+  ctx.fill();
+  // Reflection
+  const refMy = waterY + (waterY - my) * 0.25;
+  const rg = ctx.createRadialGradient(mx, refMy, 0, mx, refMy, mr * 3);
+  rg.addColorStop(0, 'rgba(200, 210, 230, 0.06)');
+  rg.addColorStop(1, 'rgba(200, 210, 230, 0)');
+  ctx.fillStyle = rg;
+  ctx.fillRect(mx - mr * 3, refMy - mr * 3, mr * 6, mr * 6);
+}
+
+// ——— Render loop ———
+function render() {
+  time += 1 / 60;
+  ctx.clearRect(0, 0, W, H);
+
+  // Sky
+  drawSky(ctx);
+
+  // Stars
+  stars.forEach(s => s.draw(ctx, time));
+
+  // Moon
+  drawMoon(ctx, time);
+
+  // Fireflies (sky)
   ctx.globalCompositeOperation = 'lighter';
-  fireflies.forEach(f => { f.update(time); f.draw(ctx); });
-  updateBursts(ctx);
+  fireflies.forEach(f => {
+    f.update(time);
+    f.draw(ctx, time);
+  });
   ctx.globalCompositeOperation = 'source-over';
 
-  requestAnimationFrame(loop);
+  // Water
+  drawWater(ctx, time);
+
+  // Firefly reflections
+  ctx.globalCompositeOperation = 'lighter';
+  fireflies.forEach(f => f.drawReflection(ctx, time));
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Grass (over water edge)
+  grasses.forEach(g => g.draw(ctx, time));
+
+  // Cursor
+  ctx.globalCompositeOperation = 'lighter';
+  drawCursor(ctx);
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Remove excess fireflies from clicks (cap at 200)
+  if (fireflies.length > 200) {
+    fireflies.splice(0, fireflies.length - 200);
+  }
+
+  requestAnimationFrame(render);
 }
-
-// --- Events ---
-document.addEventListener('mousemove', e => {
-  mouseX = e.clientX; mouseY = e.clientY;
-  mouseActive = true;
-  cursor.style.left = e.clientX + 'px';
-  cursor.style.top = e.clientY + 'px';
-});
-document.addEventListener('mouseleave', () => { mouseActive = false; });
-
-// Touch support
-document.addEventListener('touchmove', e => {
-  e.preventDefault();
-  mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY;
-  mouseActive = true;
-}, { passive: false });
-document.addEventListener('touchend', () => { mouseActive = false; });
-
-loop();
+render();
 </script>
 </body>
 </html>
