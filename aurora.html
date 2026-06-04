@@ -3,17 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aurora — Zoe ✶</title>
+<title>Aurora ✶</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #020812; cursor: none; }
-canvas { display: block; position: fixed; top: 0; left: 0; }
+body { background: #000; overflow: hidden; cursor: none; }
+canvas { display: block; }
 #cursor {
   position: fixed; pointer-events: none; z-index: 999;
   width: 12px; height: 12px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(100,255,180,0.9), rgba(100,255,180,0) 70%);
+  border: 1.5px solid rgba(100, 255, 180, 0.7);
+  box-shadow: 0 0 15px rgba(80, 220, 160, 0.4), 0 0 40px rgba(60, 200, 140, 0.15);
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 20px rgba(100,255,180,0.4);
+  transition: width 0.2s, height 0.2s, border-color 0.3s, box-shadow 0.3s;
 }
 </style>
 </head>
@@ -21,49 +22,35 @@ canvas { display: block; position: fixed; top: 0; left: 0; }
 <div id="cursor"></div>
 <canvas id="c"></canvas>
 <script>
-// ——— Perlin Noise (self-contained) ———
+// === Perlin Noise (self-contained) ===
 const Noise = (() => {
   const p = new Uint8Array(512);
-  const perm = new Uint8Array(256);
-  for (let i = 0; i < 256; i++) perm[i] = i;
-  // Fisher-Yates shuffle
-  for (let i = 255; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [perm[i], perm[j]] = [perm[j], perm[i]];
-  }
-  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
-
-  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
-  const lerp = (a, b, t) => a + t * (b - a);
-  const grad = (hash, x, y, z) => {
+  const perm = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180];
+  for (let i = 0; i < 256; i++) { p[i] = perm[i]; p[256 + i] = perm[i]; }
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+  function grad(hash, x, y, z) {
     const h = hash & 15;
     const u = h < 8 ? x : y;
     const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
-    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
-  };
-
-  return {
-    noise3D(x, y, z) {
-      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
-      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
-      const u = fade(x), v = fade(y), w = fade(z);
-      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
-      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
-      return lerp(
-        lerp(lerp(grad(p[AA], x, y, z), grad(p[BA], x-1, y, z), u),
-             lerp(grad(p[AB], x, y-1, z), grad(p[BB], x-1, y-1, z), u), v),
-        lerp(lerp(grad(p[AA+1], x, y, z-1), grad(p[BA+1], x-1, y, z-1), u),
-             lerp(grad(p[AB+1], x, y-1, z-1), grad(p[BB+1], x-1, y-1, z-1), u), v),
-        w
-      );
-    },
-    noise2D(x, y) {
-      return this.noise3D(x, y, 0);
-    }
-  };
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  }
+  function noise3D(x, y, z) {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+    const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+    return lerp(
+      lerp(lerp(grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z), u),
+           lerp(grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1), u),
+           lerp(grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1), u), v), w);
+  }
+  function noise2D(x, y) { return noise3D(x, y, 0); }
+  return { noise2D, noise3D };
 })();
 
-// ——— Canvas Setup ———
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const cursor = document.getElementById('cursor');
@@ -76,299 +63,340 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// ——— Mouse ———
 let mx = W / 2, my = H / 2;
+let targetMx = mx, targetMy = my;
+let clicking = false;
+
 window.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  cursor.style.left = mx + 'px';
-  cursor.style.top = my + 'px';
+  targetMx = e.clientX; targetMy = e.clientY;
+  cursor.style.left = e.clientX + 'px';
+  cursor.style.top = e.clientY + 'px';
+});
+window.addEventListener('mousedown', () => { clicking = true; });
+window.addEventListener('mouseup', () => { clicking = false; });
+window.addEventListener('click', e => {
+  // Shooting star burst
+  for (let i = 0; i < 25; i++) {
+    shootingStars.push(new ShootingStar(e.clientX, e.clientY, true));
+  }
 });
 
-// ——— Stars ———
+// === STARS ===
 class Star {
   constructor() {
     this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.size = 0.3 + Math.random() * 1.5;
-    this.twinkleSpeed = 0.01 + Math.random() * 0.03;
+    this.y = Math.random() * H * 0.7;
+    this.r = 0.3 + Math.random() * 1.5;
+    this.twinkleSpeed = 0.005 + Math.random() * 0.02;
     this.phase = Math.random() * Math.PI * 2;
-    this.baseAlpha = 0.3 + Math.random() * 0.5;
+    this.baseAlpha = 0.3 + Math.random() * 0.7;
   }
-  draw(ctx, time) {
-    const alpha = this.baseAlpha + Math.sin(time * this.twinkleSpeed + this.phase) * 0.3;
+  draw(ctx, t) {
+    const alpha = this.baseAlpha * (0.5 + 0.5 * Math.sin(t * this.twinkleSpeed + this.phase));
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(200, 220, 255, ${Math.max(0.05, alpha)})`;
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(220, 230, 255, ${alpha})`;
     ctx.fill();
   }
 }
 
-const stars = Array.from({ length: 200 }, () => new Star());
+const stars = Array.from({ length: 250 }, () => new Star());
 
-// ——— Aurora Band ———
-// Each band is a vertical curtain that undulates with noise
-class AuroraBand {
-  constructor(config) {
-    this.yBase = config.yBase;           // base Y position (fraction of H)
-    this.amplitude = config.amplitude;   // vertical amplitude
-    this.frequency = config.frequency;   // spatial frequency
-    this.speed = config.speed;           // time speed
-    this.noiseScale = config.noiseScale;
-    this.hue = config.hue;
-    this.hueRange = config.hueRange;
-    this.width = config.width;           // band thickness
-    this.alpha = config.alpha;
-    this.drift = config.drift || 0;      // horizontal drift
-    this.offsetX = Math.random() * 1000;
+// === AURORA RIBBONS ===
+class AuroraRibbon {
+  constructor(index, total) {
+    this.index = index;
+    this.total = total;
+    this.yBase = H * 0.15 + (index / total) * H * 0.35;
+    this.noiseOffsetX = index * 47.3;
+    this.noiseOffsetY = index * 31.7;
+    this.speed = 0.15 + Math.random() * 0.1;
+    this.amplitude = 30 + Math.random() * 50;
+    this.thickness = 40 + Math.random() * 80;
+    // Color: green → cyan → blue → violet
+    const hueRanges = [
+      [110, 150], // green-cyan
+      [140, 180], // cyan
+      [180, 220], // blue-cyan
+      [220, 280], // blue-violet
+      [260, 310], // violet-pink
+    ];
+    const range = hueRanges[index % hueRanges.length];
+    this.hueBase = range[0];
+    this.hueRange = range[1] - range[0];
+    this.alpha = 0.015 + Math.random() * 0.025;
   }
+  draw(ctx, t) {
+    const segments = 80;
+    const segW = W / segments;
+    const mouseInfluence = 1 - Math.min(1, Math.abs(my - this.yBase) / (H * 0.3));
+    const mBoost = clicking ? 3 : 1;
 
-  draw(ctx, time) {
-    const steps = Math.ceil(W / 3);
-    const yCenter = this.yBase * H;
+    ctx.beginPath();
+    // Top edge
+    for (let i = 0; i <= segments; i++) {
+      const x = i * segW;
+      const nx = x * 0.002 + this.noiseOffsetX;
+      const ny = t * this.speed + this.noiseOffsetY;
+      const n = Noise.noise3D(nx, ny, this.index * 0.5);
+      const n2 = Noise.noise3D(nx * 2, ny * 1.5, this.index * 0.3 + 10);
+      
+      // Mouse attraction
+      const dx = x - mx;
+      const mouseDx = Math.exp(-(dx * dx) / (80000)) * mouseInfluence * 60;
+      
+      const yOffset = n * this.amplitude + n2 * this.amplitude * 0.3 + mouseDx * mBoost;
+      const y = this.yBase + yOffset - this.thickness / 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    // Bottom edge (reverse)
+    for (let i = segments; i >= 0; i--) {
+      const x = i * segW;
+      const nx = x * 0.002 + this.noiseOffsetX + 5;
+      const ny = t * this.speed + this.noiseOffsetY + 3;
+      const n = Noise.noise3D(nx, ny, this.index * 0.5 + 7);
+      const n2 = Noise.noise3D(nx * 1.8, ny * 1.3, this.index * 0.4 + 20);
+      
+      const dx = x - mx;
+      const mouseDx = Math.exp(-(dx * dx) / (80000)) * mouseInfluence * 40;
+      
+      const yOffset = n * this.amplitude * 0.7 + n2 * this.amplitude * 0.2 + mouseDx * mBoost;
+      const y = this.yBase + yOffset + this.thickness / 2;
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
 
-    // Draw multiple layers for depth
-    for (let layer = 0; layer < 3; layer++) {
-      const layerAlpha = this.alpha * (1 - layer * 0.3);
-      const layerWidth = this.width * (1 + layer * 0.5);
-      const layerOffset = layer * 0.5;
+    // Gradient fill
+    const hue = this.hueBase + Math.sin(t * 0.1 + this.index) * this.hueRange * 0.5;
+    const grad = ctx.createLinearGradient(0, this.yBase - this.thickness, 0, this.yBase + this.thickness);
+    grad.addColorStop(0, `hsla(${hue}, 80%, 65%, 0)`);
+    grad.addColorStop(0.3, `hsla(${hue}, 85%, 55%, ${this.alpha})`);
+    grad.addColorStop(0.5, `hsla(${hue + 20}, 90%, 50%, ${this.alpha * 1.5})`);
+    grad.addColorStop(0.7, `hsla(${hue + 10}, 85%, 55%, ${this.alpha})`);
+    grad.addColorStop(1, `hsla(${hue}, 80%, 65%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+}
 
+const ribbons = Array.from({ length: 7 }, (_, i) => new AuroraRibbon(i, 7));
+
+// === SHOOTING STARS ===
+class ShootingStar {
+  constructor(x, y, burst = false) {
+    if (burst) {
+      this.x = x; this.y = y;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 6;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 0.5 + Math.random() * 0.8;
+    } else {
+      this.x = Math.random() * W;
+      this.y = Math.random() * H * 0.3;
+      this.vx = 4 + Math.random() * 8;
+      this.vy = 1 + Math.random() * 3;
+      this.life = 0.8 + Math.random() * 1.2;
+    }
+    this.maxLife = this.life;
+    this.trail = [];
+    this.maxTrail = burst ? 10 : 20;
+    this.size = burst ? 1.5 : 2;
+  }
+  update(dt) {
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= dt;
+    return this.life > 0;
+  }
+  draw(ctx) {
+    const alpha = this.life / this.maxLife;
+    // Trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = i / this.trail.length;
+      const a = t * alpha * 0.6;
       ctx.beginPath();
-      const points = [];
-
-      for (let i = 0; i <= steps; i++) {
-        const x = (i / steps) * W;
-        const nx = (x + this.offsetX + time * this.drift) * this.noiseScale;
-        const nt = time * this.speed + layerOffset;
-
-        // Noise-driven vertical displacement
-        const n1 = Noise.noise3D(nx, nt, layer * 0.3);
-        const n2 = Noise.noise3D(nx * 2, nt * 0.7, layer * 0.5 + 10);
-
-        // Mouse influence
-        const dx = x - mx;
-        const dy = yCenter - my;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const mouseInfluence = Math.max(0, 1 - dist / 350) * 40;
-
-        const y = yCenter + (n1 * this.amplitude + n2 * this.amplitude * 0.3) - mouseInfluence * Math.sign(dy || 1);
-        points.push({ x, y });
-      }
-
-      // Upper edge
-      ctx.moveTo(points[0].x, points[0].y - layerWidth / 2);
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y - layerWidth / 2);
-      }
-      // Lower edge (reverse)
-      for (let i = points.length - 1; i >= 0; i--) {
-        const x = points[i].x;
-        const nx = (x + this.offsetX + time * this.drift) * this.noiseScale;
-        const nt = time * this.speed + layerOffset + 5;
-        const extraWave = Noise.noise3D(nx * 1.5, nt, 20) * 15;
-        ctx.lineTo(x, points[i].y + layerWidth / 2 + extraWave);
-      }
-      ctx.closePath();
-
-      // Gradient fill along the band
-      const grad = ctx.createLinearGradient(0, yCenter - layerWidth, 0, yCenter + layerWidth);
-      const h = this.hue + Math.sin(time * 0.2 + layer) * this.hueRange;
-      grad.addColorStop(0, `hsla(${h}, 80%, 60%, 0)`);
-      grad.addColorStop(0.3, `hsla(${h}, 80%, 55%, ${layerAlpha * 0.5})`);
-      grad.addColorStop(0.5, `hsla(${h}, 85%, 50%, ${layerAlpha})`);
-      grad.addColorStop(0.7, `hsla(${h}, 80%, 55%, ${layerAlpha * 0.5})`);
-      grad.addColorStop(1, `hsla(${h}, 80%, 60%, 0)`);
-
-      ctx.fillStyle = grad;
+      ctx.arc(this.trail[i].x, this.trail[i].y, this.size * t, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200, 240, 255, ${a})`;
       ctx.fill();
     }
-  }
-}
-
-// ——— Aurora Bands Configuration ———
-const bands = [
-  new AuroraBand({
-    yBase: 0.25, amplitude: 80, frequency: 0.003, speed: 0.15,
-    noiseScale: 0.002, hue: 130, hueRange: 20, width: 120, alpha: 0.08, drift: 15
-  }),
-  new AuroraBand({
-    yBase: 0.3, amplitude: 60, frequency: 0.004, speed: 0.12,
-    noiseScale: 0.0025, hue: 150, hueRange: 30, width: 90, alpha: 0.1, drift: 10
-  }),
-  new AuroraBand({
-    yBase: 0.22, amplitude: 100, frequency: 0.002, speed: 0.1,
-    noiseScale: 0.0015, hue: 280, hueRange: 25, width: 140, alpha: 0.06, drift: 20
-  }),
-  new AuroraBand({
-    yBase: 0.35, amplitude: 50, frequency: 0.005, speed: 0.18,
-    noiseScale: 0.003, hue: 320, hueRange: 15, width: 70, alpha: 0.07, drift: 8
-  }),
-  new AuroraBand({
-    yBase: 0.18, amplitude: 120, frequency: 0.001, speed: 0.08,
-    noiseScale: 0.001, hue: 100, hueRange: 40, width: 160, alpha: 0.05, drift: 25
-  }),
-];
-
-// ——— Floating Particles (aurora dust) ———
-class AuroraParticle {
-  constructor() {
-    this.reset();
-  }
-  reset() {
-    this.x = Math.random() * W;
-    this.y = Math.random() * H * 0.6;
-    this.size = 0.5 + Math.random() * 2;
-    this.speed = 0.1 + Math.random() * 0.4;
-    this.life = 1;
-    this.decay = 0.001 + Math.random() * 0.003;
-    this.hue = 100 + Math.random() * 220;
-    this.alpha = 0.2 + Math.random() * 0.5;
-    this.drift = (Math.random() - 0.5) * 0.3;
-    this.phase = Math.random() * Math.PI * 2;
-  }
-  update(time) {
-    const n = Noise.noise3D(this.x * 0.002, this.y * 0.002, time * 0.1);
-    this.x += Math.cos(n * Math.PI * 2) * this.speed + this.drift;
-    this.y += Math.sin(n * Math.PI * 2) * this.speed * 0.3 - 0.1;
-    this.life -= this.decay;
-
-    // Mouse attraction
-    const dx = mx - this.x, dy = my - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 200) {
-      const force = (1 - dist / 200) * 0.5;
-      this.x += dx * force * 0.01;
-      this.y += dy * force * 0.01;
-    }
-
-    if (this.life <= 0 || this.x < -10 || this.x > W + 10 || this.y < -10 || this.y > H) {
-      this.reset();
-    }
-  }
-  draw(ctx, time) {
-    const pulse = Math.sin(time * 2 + this.phase) * 0.2 + 0.8;
-    const a = this.alpha * this.life * pulse;
+    // Head
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fillStyle = `hsla(${this.hue}, 70%, 70%, ${a})`;
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
     ctx.fill();
+    // Glow
+    const glow = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 8);
+    glow.addColorStop(0, `rgba(180, 255, 220, ${alpha * 0.5})`);
+    glow.addColorStop(1, `rgba(180, 255, 220, 0)`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(this.x - 8, this.y - 8, 16, 16);
   }
 }
 
-const particles = Array.from({ length: 300 }, () => new AuroraParticle());
+let shootingStars = [];
+// Spawn occasional shooting stars
+function maybeSpawnStar() {
+  if (Math.random() < 0.003) {
+    shootingStars.push(new ShootingStar(0, 0, false));
+  }
+}
 
-// ——— Reflection on water (bottom 30%) ———
-function drawReflection(time) {
-  const waterY = H * 0.7;
-  const waterH = H - waterY;
+// === GLOW ORBS (background atmosphere) ===
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H * 0.6;
+    this.vx = (Math.random() - 0.5) * 0.2;
+    this.vy = (Math.random() - 0.5) * 0.1;
+    this.radius = 50 + Math.random() * 100;
+    this.hue = 120 + Math.random() * 80; // green → cyan → blue
+    this.alpha = 0.006 + Math.random() * 0.01;
+    this.pulse = Math.random() * Math.PI * 2;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.pulse += 0.008;
+    this.vx *= 0.998;
+    this.vy *= 0.998;
+    if (this.x < -this.radius) this.x = W + this.radius;
+    if (this.x > W + this.radius) this.x = -this.radius;
+    if (this.y < -this.radius) this.y = H * 0.6 + this.radius;
+    if (this.y > H * 0.6 + this.radius) this.y = -this.radius;
+  }
+  draw(ctx) {
+    const r = this.radius + Math.sin(this.pulse) * 15;
+    const a = this.alpha + Math.sin(this.pulse) * 0.003;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${this.hue}, 70%, 45%, ${a})`);
+    g.addColorStop(1, `hsla(${this.hue}, 70%, 45%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
 
-  // Dark water base
-  const waterGrad = ctx.createLinearGradient(0, waterY, 0, H);
-  waterGrad.addColorStop(0, 'rgba(2, 8, 18, 0.85)');
-  waterGrad.addColorStop(1, 'rgba(2, 8, 18, 0.98)');
-  ctx.fillStyle = waterGrad;
-  ctx.fillRect(0, waterY, W, waterH);
+const glowOrbs = Array.from({ length: 40 }, () => new GlowOrb());
 
-  // Subtle shimmer lines
-  ctx.globalAlpha = 0.04;
-  for (let i = 0; i < 15; i++) {
-    const y = waterY + Math.random() * waterH;
-    const len = 20 + Math.random() * 80;
-    const x = Math.random() * W;
+// === MOUNTAIN SILHOUETTE ===
+function drawMountains(ctx, t) {
+  // Two layers of mountains
+  const layers = [
+    { y: H * 0.72, amp: 40, freq: 0.003, color: 'rgba(5, 8, 15, 1)', noiseScale: 0.5 },
+    { y: H * 0.78, amp: 25, freq: 0.005, color: 'rgba(2, 4, 8, 1)', noiseScale: 0.8 },
+  ];
+  
+  layers.forEach(layer => {
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + len, y + (Math.random() - 0.5) * 2);
-    ctx.strokeStyle = `hsla(${130 + Math.random() * 180}, 50%, 60%, 1)`;
-    ctx.lineWidth = 0.5;
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 3) {
+      const n = Noise.noise2D(x * layer.freq, layer.noiseScale);
+      const y = layer.y + n * layer.amp;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = layer.color;
+    ctx.fill();
+  });
+}
+
+// === HORIZON GLOW ===
+function drawHorizonGlow(ctx, t) {
+  const hue = 140 + Math.sin(t * 0.05) * 30;
+  const grad = ctx.createRadialGradient(W * 0.5, H * 0.75, 0, W * 0.5, H * 0.75, W * 0.6);
+  grad.addColorStop(0, `hsla(${hue}, 60%, 30%, 0.08)`);
+  grad.addColorStop(0.5, `hsla(${hue + 20}, 50%, 20%, 0.03)`);
+  grad.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// === GROUND REFLECTION ===
+function drawReflection(ctx, t) {
+  // Faint aurora reflection on "water" below mountains
+  const reflY = H * 0.82;
+  const grad = ctx.createLinearGradient(0, reflY, 0, H);
+  grad.addColorStop(0, `hsla(150, 40%, 20%, 0.04)`);
+  grad.addColorStop(0.5, `hsla(180, 30%, 15%, 0.02)`);
+  grad.addColorStop(1, 'hsla(0, 0%, 5%, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, reflY, W, H - reflY);
+  
+  // Shimmer lines
+  ctx.globalAlpha = 0.03;
+  for (let i = 0; i < 15; i++) {
+    const y = reflY + 10 + i * 8;
+    const offset = Noise.noise2D(i * 0.3, t * 0.3) * 20;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.2 + offset, y);
+    ctx.lineTo(W * 0.8 + offset, y);
+    ctx.strokeStyle = `hsla(160, 50%, 60%, ${0.3 - i * 0.015})`;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }
 
-// ——— Ground silhouette ———
-function drawGround() {
-  const groundY = H * 0.7;
-  ctx.beginPath();
-  ctx.moveTo(0, groundY);
-
-  // Mountain-like silhouette with noise
-  for (let x = 0; x <= W; x += 4) {
-    const n1 = Noise.noise2D(x * 0.001, 0) * 60;
-    const n2 = Noise.noise2D(x * 0.005, 10) * 20;
-    const y = groundY + n1 + n2 - 30;
-    ctx.lineTo(x, Math.min(y, groundY + 10));
-  }
-  ctx.lineTo(W, H);
-  ctx.lineTo(0, H);
-  ctx.closePath();
-  ctx.fillStyle = '#020810';
-  ctx.fill();
-}
-
-// ——— Main Loop ———
+// === RENDER ===
 let time = 0;
-function animate() {
-  time += 0.01;
+let lastTime = performance.now();
 
-  // Sky gradient
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-  skyGrad.addColorStop(0, '#020818');
-  skyGrad.addColorStop(0.4, '#030c20');
-  skyGrad.addColorStop(0.7, '#041028');
-  skyGrad.addColorStop(1, '#020812');
-  ctx.fillStyle = skyGrad;
+function render(now) {
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  time += dt;
+
+  // Smooth mouse
+  mx += (targetMx - mx) * 0.08;
+  my += (targetMy - my) * 0.08;
+
+  // Sky gradient background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#010208');
+  bg.addColorStop(0.4, '#020510');
+  bg.addColorStop(0.7, '#030812');
+  bg.addColorStop(1, '#020406');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
   // Stars
-  stars.forEach(s => s.draw(ctx, time));
+  stars.forEach(s => s.draw(ctx, time * 60));
 
-  // Aurora bands (additive blending)
+  // Glow orbs (atmosphere)
   ctx.globalCompositeOperation = 'screen';
-  bands.forEach(b => b.draw(ctx, time));
-  ctx.globalCompositeOperation = 'source-over';
+  glowOrbs.forEach(o => { o.update(); o.draw(ctx); });
 
-  // Ground silhouette
-  drawGround();
+  // Horizon glow
+  drawHorizonGlow(ctx, time);
 
-  // Water reflection
-  drawReflection(time);
-
-  // Aurora particles (above ground, additive)
+  // Aurora ribbons
   ctx.globalCompositeOperation = 'screen';
-  particles.forEach(p => {
-    p.update(time);
-    if (p.y < H * 0.7) p.draw(ctx, time);
+  ribbons.forEach(r => r.draw(ctx, time));
+
+  // Shooting stars
+  ctx.globalCompositeOperation = 'lighter';
+  maybeSpawnStar();
+  shootingStars = shootingStars.filter(s => {
+    const alive = s.update(dt);
+    if (alive) s.draw(ctx);
+    return alive;
   });
-  ctx.globalCompositeOperation = 'source-over';
 
-  requestAnimationFrame(animate);
+  // Mountains (opaque, on top)
+  ctx.globalCompositeOperation = 'source-over';
+  drawMountains(ctx, time);
+  
+  // Reflection
+  drawReflection(ctx, time);
+
+  requestAnimationFrame(render);
 }
 
-animate();
-
-// ——— Click to create aurora burst ———
-canvas.addEventListener('click', e => {
-  const cx = e.clientX, cy = e.clientY;
-  for (let i = 0; i < 30; i++) {
-    const p = new AuroraParticle();
-    p.x = cx + (Math.random() - 0.5) * 40;
-    p.y = cy + (Math.random() - 0.5) * 40;
-    p.size = 1 + Math.random() * 3;
-    p.alpha = 0.6 + Math.random() * 0.4;
-    p.decay = 0.005 + Math.random() * 0.005;
-    p.speed = 0.3 + Math.random() * 0.8;
-    particles.push(p);
-  }
-  // Remove excess
-  while (particles.length > 600) particles.shift();
-});
-
-// Handle resize for stars
-window.addEventListener('resize', () => {
-  stars.forEach(s => {
-    s.x = Math.random() * W;
-    s.y = Math.random() * H;
-  });
-});
+requestAnimationFrame(render);
 </script>
 </body>
 </html>
