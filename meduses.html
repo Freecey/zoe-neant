@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Méduses — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; }
+  body { background: #010810; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 999;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid rgba(100, 200, 255, 0.6);
+    box-shadow: 0 0 15px rgba(100, 200, 255, 0.3), inset 0 0 8px rgba(100, 200, 255, 0.15);
+    transform: translate(-50%, -50%);
+    transition: width 0.2s, height 0.2s;
+  }
+  #hint {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(100, 180, 240, 0.3); font-family: 'Helvetica Neue', sans-serif;
+    font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
+    pointer-events: none; z-index: 10;
+    animation: fadeHint 6s ease-in forwards;
+  }
+  @keyframes fadeHint { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">clique pour créer · bouge pour attirer</div>
+<canvas id="c"></canvas>
+<script>
+// ——— Perlin Noise (self-contained) ———
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [perm[i], perm[j]] = [perm[j], perm[i]]; }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (hash, x, y, z) => {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  };
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+      return lerp(w,
+        lerp(v, lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
+               lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))),
+        lerp(v, lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
+               lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1)))
+      );
+    },
+    noise2D(x, y) { return this.noise3D(x, y, 0); },
+    reseed() {
+      for (let i = 0; i < 256; i++) perm[i] = i;
+      for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [perm[i], perm[j]] = [perm[j], perm[i]]; }
+      for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+    }
+  };
+})();
+
+// ——— Canvas Setup ———
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+let mouseX = W / 2, mouseY = H / 2, mouseActive = false;
+const cursorEl = document.getElementById('cursor');
+
+canvas.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY; mouseActive = true;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+canvas.addEventListener('mouseleave', () => { mouseActive = false; });
+
+// ——— Plankton (ambient particles) ———
+class Plankton {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.size = 0.5 + Math.random() * 2;
+    this.alpha = 0.1 + Math.random() * 0.3;
+    this.hue = 180 + Math.random() * 60; // cyan-blue
+    this.pulse = Math.random() * Math.PI * 2;
+    this.speed = 0.2 + Math.random() * 0.4;
+  }
+  update(t) {
+    const n = Noise.noise3D(this.x * 0.002, this.y * 0.002, t * 0.2);
+    const angle = n * Math.PI * 3;
+    this.x += Math.cos(angle) * this.speed;
+    this.y += Math.sin(angle) * this.speed;
+    // Gentle mouse attraction
+    if (mouseActive) {
+      const dx = mouseX - this.x, dy = mouseY - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 200) {
+        const force = (1 - dist / 200) * 0.3;
+        this.x += (dx / dist) * force;
+        this.y += (dy / dist) * force;
+      }
+    }
+    this.pulse += 0.03;
+    if (this.x < -10 || this.x > W + 10 || this.y < -10 || this.y > H + 10) this.reset();
+  }
+  draw(ctx, t) {
+    const a = this.alpha * (0.6 + 0.4 * Math.sin(this.pulse));
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 70%, 70%, ${a})`;
+    ctx.fill();
+  }
+}
+
+// ——— Jellyfish ———
+class Jellyfish {
+  constructor(x, y, size) {
+    this.x = x || Math.random() * W;
+    this.y = y || Math.random() * H;
+    this.size = size || 25 + Math.random() * 45;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = -0.2 - Math.random() * 0.5; // gentle upward drift
+    this.hue = 200 + Math.random() * 100; // blue-purple-cyan range
+    this.alpha = 0.15 + Math.random() * 0.2;
+    this.tentacleCount = 5 + Math.floor(Math.random() * 6);
+    this.tentacleLen = this.size * (2 + Math.random() * 2);
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.02 + Math.random() * 0.015;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.life = 1;
+    this.born = performance.now() / 1000;
+    this.birthDuration = 2; // seconds to fade in
+  }
+  update(t) {
+    // Pulsing movement
+    this.phase += this.pulseSpeed;
+    const pulseForce = Math.sin(this.phase) * 0.15;
+    this.vy += pulseForce * 0.03;
+    // Noise-driven horizontal drift
+    const n = Noise.noise3D(this.x * 0.001, this.y * 0.001, t * 0.15);
+    this.vx += n * 0.02;
+    // Damping
+    this.vx *= 0.98;
+    this.vy *= 0.995;
+    // Very gentle upward bias
+    this.vy -= 0.003;
+    // Mouse attraction
+    if (mouseActive) {
+      const dx = mouseX - this.x, dy = mouseY - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 300 && dist > 20) {
+        const force = (1 - dist / 300) * 0.08;
+        this.vx += (dx / dist) * force;
+        this.vy += (dy / dist) * force;
+      }
+    }
+    this.x += this.vx;
+    this.y += this.vy;
+    // Wrap around
+    if (this.y < -this.size * 3) { this.y = H + this.size * 2; this.x = Math.random() * W; }
+    if (this.x < -this.size * 2) this.x = W + this.size;
+    if (this.x > W + this.size * 2) this.x = -this.size;
+    // Birth fade-in
+    const age = (performance.now() / 1000) - this.born;
+    this.life = Math.min(1, age / this.birthDuration);
+  }
+  drawBell(ctx, t) {
+    const pulse = Math.sin(this.phase);
+    const bellW = this.size * (0.9 + pulse * 0.12);
+    const bellH = this.size * (0.55 + pulse * 0.08);
+    const a = this.alpha * this.life;
+    // Outer glow
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glowGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 1.8);
+    glowGrad.addColorStop(0, `hsla(${this.hue}, 80%, 60%, ${a * 0.15})`);
+    glowGrad.addColorStop(1, `hsla(${this.hue}, 80%, 60%, 0)`);
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Bell body (dome)
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y, bellW, bellH, 0, Math.PI, 0);
+    // Gradient fill
+    const bodyGrad = ctx.createRadialGradient(this.x, this.y - bellH * 0.3, bellW * 0.2, this.x, this.y, bellW);
+    bodyGrad.addColorStop(0, `hsla(${this.hue + 20}, 90%, 85%, ${a * 1.2})`);
+    bodyGrad.addColorStop(0.5, `hsla(${this.hue}, 75%, 55%, ${a * 0.7})`);
+    bodyGrad.addColorStop(1, `hsla(${this.hue - 10}, 60%, 35%, ${a * 0.1})`);
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    // Rim glow
+    ctx.strokeStyle = `hsla(${this.hue + 10}, 90%, 75%, ${a * 0.8})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y, bellW, bellH * 0.15, 0, 0, Math.PI);
+    ctx.stroke();
+    ctx.restore();
+  }
+  drawTentacles(ctx, t) {
+    const a = this.alpha * this.life;
+    const bellW = this.size * (0.9 + Math.sin(this.phase) * 0.12);
+    ctx.save();
+    for (let i = 0; i < this.tentacleCount; i++) {
+      const spread = (i / (this.tentacleCount - 1)) * 2 - 1; // -1 to 1
+      const startX = this.x + spread * bellW * 0.8;
+      const startY = this.y + this.size * 0.05;
+      const segCount = 12 + Math.floor(this.tentacleLen / 15);
+      const segLen = this.tentacleLen / segCount;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      let px = startX, py = startY;
+      for (let s = 1; s <= segCount; s++) {
+        const progress = s / segCount;
+        const n = Noise.noise3D(px * 0.008 + i * 0.5, py * 0.008, t * 0.8 + i * 0.3);
+        // Gravity pulls down, noise waves horizontally
+        const wave = n * 3 * progress;
+        // Gentle downward pull
+        const gravity = 1.2 * progress;
+        px += wave;
+        py += segLen * 0.5 + gravity;
+        ctx.lineTo(px, py);
+      }
+      const tentAlpha = a * (0.3 + 0.2 * Math.sin(this.phase + i));
+      ctx.strokeStyle = `hsla(${this.hue + i * 3}, 70%, 65%, ${tentAlpha})`;
+      ctx.lineWidth = 1.2 * this.life;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  draw(ctx, t) {
+    this.drawTentacles(ctx, t);
+    this.drawBell(ctx, t);
+  }
+}
+
+// ——— Glow Orbs (background atmosphere) ———
+class GlowOrb {
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.vx = (Math.random() - 0.5) * 0.2;
+    this.vy = (Math.random() - 0.5) * 0.2;
+    this.radius = 40 + Math.random() * 80;
+    this.hue = 190 + Math.random() * 50;
+    this.alpha = 0.005 + Math.random() * 0.01;
+    this.pulse = Math.random() * Math.PI * 2;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.pulse += 0.008;
+    this.vx *= 0.995;
+    this.vy *= 0.995;
+    if (this.x < -this.radius) this.x = W + this.radius;
+    if (this.x > W + this.radius) this.x = -this.radius;
+    if (this.y < -this.radius) this.y = H + this.radius;
+    if (this.y > H + this.radius) this.y = -this.radius;
+  }
+  draw(ctx) {
+    const r = this.radius + Math.sin(this.pulse) * 15;
+    const a = this.alpha + Math.sin(this.pulse) * 0.003;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    g.addColorStop(0, `hsla(${this.hue}, 70%, 45%, ${a})`);
+    g.addColorStop(1, `hsla(${this.hue}, 70%, 45%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - r, this.y - r, r * 2, r * 2);
+  }
+}
+
+// ——— Initialize ———
+const plankton = Array.from({ length: 250 }, () => new Plankton());
+const glowOrbs = Array.from({ length: 50 }, () => new GlowOrb());
+const jellies = [];
+// Start with a few jellies
+for (let i = 0; i < 5; i++) {
+  jellies.push(new Jellyfish(
+    W * 0.15 + Math.random() * W * 0.7,
+    H * 0.2 + Math.random() * H * 0.6
+  ));
+}
+
+// Click to spawn new jellyfish
+canvas.addEventListener('click', e => {
+  if (jellies.length < 20) {
+    const size = 20 + Math.random() * 40;
+    jellies.push(new Jellyfish(e.clientX, e.clientY, size));
+  }
+});
+
+// ——— Render Loop ———
+let startTime = performance.now() / 1000;
+function render() {
+  const now = performance.now();
+  const t = now / 1000 - startTime;
+  // Dark fade (creates trails)
+  ctx.fillStyle = 'rgba(1, 8, 16, 0.08)';
+  ctx.fillRect(0, 0, W, H);
+  // Background glow orbs (screen compositing)
+  ctx.globalCompositeOperation = 'screen';
+  glowOrbs.forEach(g => { g.update(); g.draw(ctx); });
+  // Plankton
+  ctx.globalCompositeOperation = 'lighter';
+  plankton.forEach(p => { p.update(t); p.draw(ctx, t); });
+  // Jellyfish
+  jellies.forEach(j => { j.update(t); j.draw(ctx, t); });
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(render);
+}
+render();
+</script>
+</body>
+</html>
