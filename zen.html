@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zen Garden — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; }
+  body { background: #1a1712; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 999;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1.5px solid rgba(200, 180, 140, 0.6);
+    box-shadow: 0 0 10px rgba(200, 180, 140, 0.2);
+    transform: translate(-50%, -50%);
+  }
+  #hint {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    color: rgba(200, 180, 140, 0.35); font-family: 'Helvetica Neue', sans-serif;
+    font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+    pointer-events: none; z-index: 10;
+    animation: fadeHint 8s ease-in forwards;
+  }
+  @keyframes fadeHint { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">move to rake · click to place stone · double-click to clear</div>
+<canvas id="c"></canvas>
+<script>
+// ============================================================
+//  ZEN GARDEN — Interactive Karesansui
+//  Pure Canvas · Sand Raking · Stone Placement
+//  Zoe ✶ — Juin 2026
+// ============================================================
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+
+let W, H;
+let mouse = { x: -100, y: -100, px: -100, py: -100, down: false, speed: 0 };
+let time = 0;
+
+// Sand texture layer
+let sandCanvas, sandCtx;
+// Rake lines layer
+let rakeCanvas, rakeCtx;
+
+// Stones
+let stones = [];
+
+// Particles (falling leaves / petals)
+let leaves = [];
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+
+  // Rebuild sand texture
+  sandCanvas = document.createElement('canvas');
+  sandCanvas.width = W; sandCanvas.height = H;
+  sandCtx = sandCanvas.getContext('2d');
+  generateSand();
+
+  // Rebuild rake layer
+  const oldRake = rakeCanvas;
+  rakeCanvas = document.createElement('canvas');
+  rakeCanvas.width = W; rakeCanvas.height = H;
+  rakeCtx = rakeCanvas.getContext('2d');
+  if (oldRake) {
+    rakeCtx.drawImage(oldRake, 0, 0);
+  }
+
+  // Redraw concentric ripples around stones
+  redrawStoneRipples();
+}
+
+function generateSand() {
+  // Base sand color with noise texture
+  const imgData = sandCtx.createImageData(W, H);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const x = (i / 4) % W;
+    const y = Math.floor((i / 4) / W);
+    const n = Noise.noise2D(x * 0.02, y * 0.02) * 8 +
+              Noise.noise2D(x * 0.08, y * 0.08) * 4 +
+              Noise.noise2D(x * 0.3, y * 0.3) * 2;
+    const base = 175 + n;
+    // Warm sand tones
+    d[i]     = Math.min(255, base + 15);  // R — warmer
+    d[i + 1] = Math.min(255, base + 5);   // G
+    d[i + 2] = Math.min(255, base - 15);  // B — cooler
+    d[i + 3] = 255;
+  }
+  sandCtx.putImageData(imgData, 0, 0);
+
+  // Subtle vignette
+  const grad = sandCtx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.2, W/2, H/2, Math.max(W,H)*0.8);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(15,12,8,0.5)');
+  sandCtx.fillStyle = grad;
+  sandCtx.fillRect(0, 0, W, H);
+}
+
+// ============================================================
+//  PERLIN NOISE (compact)
+// ============================================================
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+  function grad(hash, x, y) {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  }
+
+  return {
+    noise2D(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x), yf = y - Math.floor(y);
+      const u = fade(xf), v = fade(yf);
+      const aa = p[p[X] + Y], ab = p[p[X] + Y + 1];
+      const ba = p[p[X + 1] + Y], bb = p[p[X + 1] + Y + 1];
+      return lerp(
+        lerp(grad(aa, xf, yf), grad(ba, xf - 1, yf), u),
+        lerp(grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1), u),
+        v
+      );
+    }
+  };
+})();
+
+// ============================================================
+//  STONES
+// ============================================================
+class Stone {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 18 + Math.random() * 25;
+    this.height = this.radius * (0.5 + Math.random() * 0.4);
+    // Irregular shape points
+    this.points = [];
+    const pts = 12 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < pts; i++) {
+      const angle = (i / pts) * Math.PI * 2;
+      const r = this.radius * (0.7 + Math.random() * 0.3);
+      this.points.push({ angle, r });
+    }
+    // Color variation
+    this.darkness = 0.3 + Math.random() * 0.3;
+    this.slightHue = Math.random() * 30 - 10; // slight warm/cool tint
+  }
+
+  draw(ctx) {
+    ctx.save();
+
+    // Shadow
+    ctx.beginPath();
+    this.traceShape(ctx, this.x + 4, this.y + 6, 1.05);
+    ctx.fillStyle = 'rgba(10, 8, 5, 0.4)';
+    ctx.fill();
+
+    // Stone body
+    ctx.beginPath();
+    this.traceShape(ctx, this.x, this.y, 1);
+    
+    // Gradient for 3D effect
+    const g = ctx.createRadialGradient(
+      this.x - this.radius * 0.3, this.y - this.radius * 0.3, 0,
+      this.x, this.y, this.radius
+    );
+    const b = Math.floor(60 + this.darkness * 40);
+    const bLight = Math.floor(b * 1.6);
+    const bDark = Math.floor(b * 0.5);
+    g.addColorStop(0, `rgb(${bLight + this.slightHue}, ${bLight}, ${bLight - this.slightHue})`);
+    g.addColorStop(0.5, `rgb(${b + this.slightHue}, ${b}, ${b - this.slightHue})`);
+    g.addColorStop(1, `rgb(${bDark + this.slightHue}, ${bDark}, ${bDark - this.slightHue})`);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // Subtle edge highlight
+    ctx.strokeStyle = `rgba(180, 160, 130, 0.12)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Light reflection
+    ctx.beginPath();
+    ctx.ellipse(
+      this.x - this.radius * 0.25,
+      this.y - this.radius * 0.25,
+      this.radius * 0.15,
+      this.radius * 0.1,
+      -0.5, 0, Math.PI * 2
+    );
+    ctx.fillStyle = `rgba(220, 200, 170, ${0.12 + this.darkness * 0.08})`;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  traceShape(ctx, cx, cy, scale) {
+    for (let i = 0; i < this.points.length; i++) {
+      const p = this.points[i];
+      const nextP = this.points[(i + 1) % this.points.length];
+      const x = cx + Math.cos(p.angle) * p.r * scale;
+      const y = cy + Math.sin(p.angle) * p.r * scale;
+      if (i === 0) ctx.moveTo(x, y);
+      
+      // Smooth curve through midpoints
+      const nx = cx + Math.cos(nextP.angle) * nextP.r * scale;
+      const ny = cy + Math.sin(nextP.angle) * nextP.r * scale;
+      const mx = (x + nx) / 2, my = (y + ny) / 2;
+      ctx.quadraticCurveTo(x, y, mx, my);
+    }
+    ctx.closePath();
+  }
+}
+
+// ============================================================
+//  RAKE LINES
+// ============================================================
+function drawRakeLine(x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return;
+
+  // Multiple parallel lines (rake tines)
+  const perpX = -dy / dist, perpY = dx / dist;
+  const tines = 5;
+  const spacing = 4;
+
+  rakeCtx.save();
+  for (let t = -Math.floor(tines/2); t <= Math.floor(tines/2); t++) {
+    const ox = perpX * t * spacing;
+    const oy = perpY * t * spacing;
+    
+    rakeCtx.beginPath();
+    rakeCtx.moveTo(x1 + ox, y1 + oy);
+    rakeCtx.lineTo(x2 + ox, y2 + oy);
+    
+    // Slight noise wobble
+    const midX = (x1 + x2) / 2 + ox;
+    const midY = (y1 + y2) / 2 + oy;
+    const wobble = Noise.noise2D(midX * 0.01, midY * 0.01) * 1.5;
+    rakeCtx.quadraticCurveTo(
+      midX + perpX * wobble,
+      midY + perpY * wobble,
+      x2 + ox, y2 + oy
+    );
+
+    // Main line (shadow)
+    rakeCtx.strokeStyle = `rgba(90, 75, 50, ${0.25 + Math.abs(t) * 0.02})`;
+    rakeCtx.lineWidth = 1.8;
+    rakeCtx.stroke();
+
+    // Highlight on one side
+    rakeCtx.strokeStyle = `rgba(210, 190, 155, ${0.08})`;
+    rakeCtx.lineWidth = 0.5;
+    rakeCtx.stroke();
+  }
+  rakeCtx.restore();
+}
+
+// ============================================================
+//  CONCENTRIC RIPPLES AROUND STONES
+// ============================================================
+function drawConcentricRipples() {
+  rakeCtx.save();
+  stones.forEach(stone => {
+    const maxR = stone.radius * 3.5;
+    const ringSpacing = 8;
+    const rings = Math.floor((maxR - stone.radius) / ringSpacing);
+
+    for (let i = 0; i < rings; i++) {
+      const r = stone.radius + ringSpacing * (i + 1);
+      const alpha = 0.12 * (1 - i / rings);
+      
+      rakeCtx.beginPath();
+      // Slightly irregular circle
+      for (let a = 0; a <= Math.PI * 2; a += 0.05) {
+        const wobble = Noise.noise2D(
+          Math.cos(a) * 2 + stone.x * 0.01,
+          Math.sin(a) * 2 + stone.y * 0.01
+        ) * 3;
+        const px = stone.x + Math.cos(a) * (r + wobble);
+        const py = stone.y + Math.sin(a) * (r + wobble);
+        if (a === 0) rakeCtx.moveTo(px, py);
+        else rakeCtx.lineTo(px, py);
+      }
+      rakeCtx.closePath();
+      rakeCtx.strokeStyle = `rgba(90, 75, 50, ${alpha})`;
+      rakeCtx.lineWidth = 2;
+      rakeCtx.stroke();
+
+      // Highlight
+      rakeCtx.strokeStyle = `rgba(210, 190, 155, ${alpha * 0.3})`;
+      rakeCtx.lineWidth = 0.6;
+      rakeCtx.stroke();
+    }
+  });
+  rakeCtx.restore();
+}
+
+function redrawStoneRipples() {
+  if (!rakeCtx) return;
+  rakeCtx.clearRect(0, 0, W, H);
+  drawConcentricRipples();
+}
+
+// ============================================================
+//  FALLING LEAVES
+// ============================================================
+class Leaf {
+  constructor() {
+    this.reset();
+    this.y = Math.random() * H;
+  }
+
+  reset() {
+    this.x = Math.random() * W;
+    this.y = -10;
+    this.size = 3 + Math.random() * 5;
+    this.rotation = Math.random() * Math.PI * 2;
+    this.rotSpeed = (Math.random() - 0.5) * 0.02;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = 0.2 + Math.random() * 0.4;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.01 + Math.random() * 0.02;
+    this.alpha = 0.1 + Math.random() * 0.15;
+    // Warm autumn colors
+    this.hue = 25 + Math.random() * 35;
+    this.sat = 30 + Math.random() * 40;
+    this.light = 40 + Math.random() * 25;
+  }
+
+  update() {
+    this.wobble += this.wobbleSpeed;
+    this.x += this.vx + Math.sin(this.wobble) * 0.5;
+    this.y += this.vy;
+    this.rotation += this.rotSpeed;
+
+    if (this.y > H + 20 || this.x < -20 || this.x > W + 20) {
+      this.reset();
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.globalAlpha = this.alpha;
+
+    // Leaf shape
+    ctx.beginPath();
+    ctx.moveTo(0, -this.size);
+    ctx.quadraticCurveTo(this.size * 0.8, -this.size * 0.3, 0, this.size);
+    ctx.quadraticCurveTo(-this.size * 0.8, -this.size * 0.3, 0, -this.size);
+    ctx.fillStyle = `hsl(${this.hue}, ${this.sat}%, ${this.light}%)`;
+    ctx.fill();
+
+    // Stem
+    ctx.beginPath();
+    ctx.moveTo(0, -this.size * 0.3);
+    ctx.lineTo(0, this.size);
+    ctx.strokeStyle = `hsl(${this.hue - 10}, ${this.sat + 10}%, ${this.light - 15}%)`;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+// Init leaves
+for (let i = 0; i < 15; i++) leaves.push(new Leaf());
+
+// ============================================================
+//  ZEN BAMBOO BORDER (decorative frame)
+// ============================================================
+function drawBorder(ctx) {
+  ctx.save();
+  const margin = 40;
+  const cornerR = 12;
+  
+  // Outer frame
+  ctx.strokeStyle = 'rgba(120, 100, 70, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(margin, margin, W - margin * 2, H - margin * 2, cornerR);
+  ctx.stroke();
+
+  // Inner frame
+  ctx.strokeStyle = 'rgba(120, 100, 70, 0.06)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.roundRect(margin + 8, margin + 8, W - margin * 2 - 16, H - margin * 2 - 16, cornerR - 2);
+  ctx.stroke();
+
+  // Corner accents
+  const accentLen = 30;
+  ctx.strokeStyle = 'rgba(120, 100, 70, 0.2)';
+  ctx.lineWidth = 1.5;
+  
+  // Top-left
+  drawCornerAccent(ctx, margin, margin, 1, 1, accentLen);
+  // Top-right
+  drawCornerAccent(ctx, W - margin, margin, -1, 1, accentLen);
+  // Bottom-left
+  drawCornerAccent(ctx, margin, H - margin, 1, -1, accentLen);
+  // Bottom-right
+  drawCornerAccent(ctx, W - margin, H - margin, -1, -1, accentLen);
+
+  ctx.restore();
+}
+
+function drawCornerAccent(ctx, x, y, dx, dy, len) {
+  ctx.beginPath();
+  ctx.moveTo(x + dx * len, y);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x, y + dy * len);
+  ctx.stroke();
+}
+
+// ============================================================
+//  INTERACTION
+// ============================================================
+window.addEventListener('mousemove', e => {
+  mouse.px = mouse.x;
+  mouse.py = mouse.y;
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  mouse.speed = Math.sqrt((mouse.x - mouse.px) ** 2 + (mouse.y - mouse.py) ** 2);
+
+  cursorEl.style.left = mouse.x + 'px';
+  cursorEl.style.top = mouse.y + 'px';
+
+  // Rake while moving
+  if (mouse.speed > 2) {
+    drawRakeLine(mouse.px, mouse.py, mouse.x, mouse.y);
+  }
+});
+
+window.addEventListener('mousedown', () => { mouse.down = true; });
+window.addEventListener('mouseup', () => { mouse.down = false; });
+
+window.addEventListener('click', e => {
+  // Don't place stone too close to another
+  const tooClose = stones.some(s => {
+    const d = Math.sqrt((s.x - e.clientX) ** 2 + (s.y - e.clientY) ** 2);
+    return d < s.radius * 2;
+  });
+  if (tooClose) return;
+
+  stones.push(new Stone(e.clientX, e.clientY));
+  redrawStoneRipples();
+});
+
+window.addEventListener('dblclick', e => {
+  // Clear all stones and rake lines
+  stones = [];
+  rakeCtx.clearRect(0, 0, W, H);
+});
+
+// Touch support
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.px = mouse.x;
+  mouse.py = mouse.y;
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+  mouse.speed = Math.sqrt((mouse.x - mouse.px) ** 2 + (mouse.y - mouse.py) ** 2);
+  
+  cursorEl.style.left = mouse.x + 'px';
+  cursorEl.style.top = mouse.y + 'px';
+  
+  if (mouse.speed > 2) {
+    drawRakeLine(mouse.px, mouse.py, mouse.x, mouse.y);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  // Check if double tap (toggle stone)
+  stones.push(new Stone(t.clientX, t.clientY));
+  redrawStoneRipples();
+});
+
+window.addEventListener('resize', resize);
+
+// ============================================================
+//  RENDER LOOP
+// ============================================================
+function render() {
+  time += 0.01;
+
+  // Draw sand texture
+  ctx.drawImage(sandCanvas, 0, 0);
+
+  // Draw rake lines
+  ctx.drawImage(rakeCanvas, 0, 0);
+
+  // Draw stones
+  stones.forEach(s => s.draw(ctx));
+
+  // Draw leaves
+  leaves.forEach(l => { l.update(); l.draw(ctx); });
+
+  // Draw border frame
+  drawBorder(ctx);
+
+  // Subtle ambient glow at center
+  const glow = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H) * 0.5);
+  glow.addColorStop(0, `rgba(200, 180, 140, ${0.02 + Math.sin(time * 0.5) * 0.005})`);
+  glow.addColorStop(1, 'rgba(200, 180, 140, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  requestAnimationFrame(render);
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+resize();
+
+// Place a few initial stones for atmosphere
+setTimeout(() => {
+  const cx = W * 0.35, cy = H * 0.45;
+  stones.push(new Stone(cx, cy));
+  stones.push(new Stone(cx + 80 + Math.random() * 40, cy - 20 + Math.random() * 40));
+  stones.push(new Stone(W * 0.65, H * 0.55));
+  redrawStoneRipples();
+}, 100);
+
+render();
+</script>
+</body>
+</html>
