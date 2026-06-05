@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Synchronous Fireflies</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #010204; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #info {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(180, 220, 160, 0.4); font: 12px 'Courier New', monospace;
+    text-align: center; pointer-events: none; letter-spacing: 1px;
+    transition: opacity 2s;
+  }
+  #cursor {
+    position: fixed; width: 12px; height: 12px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(200, 255, 120, 0.6), transparent);
+    pointer-events: none; z-index: 100; transform: translate(-50%, -50%);
+    box-shadow: 0 0 20px rgba(200, 255, 120, 0.3);
+  }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="info">click to attract · watch them sync</div>
+<canvas id="c"></canvas>
+<script>
+// ─── Kuramoto Synchronous Fireflies ───
+// Each firefly is a phase oscillator. Nearby fireflies couple
+// their phases via the Kuramoto model, gradually synchronizing.
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+const info = document.getElementById('info');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Mouse
+let mx = W / 2, my = H / 2, mouseActive = false;
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursor.style.left = mx + 'px'; cursor.style.top = my + 'px';
+  mouseActive = true;
+});
+document.addEventListener('mouseleave', () => mouseActive = false);
+
+// ─── Perlin Noise (self-contained) ───
+const Noise = (() => {
+  const perm = new Uint8Array(512);
+  const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+  function seed() {
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  }
+  seed();
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+  function dot3(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = perm[X]+Y, AA = perm[A]+Z, AB = perm[A+1]+Z;
+      const B = perm[X+1]+Y, BA = perm[B]+Z, BB = perm[B+1]+Z;
+      return lerp(
+        lerp(lerp(dot3(grad3[perm[AA]%12],x,y,z), dot3(grad3[perm[BA]%12],x-1,y,z), u),
+             lerp(dot3(grad3[perm[AB]%12],x,y-1,z), dot3(grad3[perm[BB]%12],x-1,y-1,z), u), v),
+        lerp(lerp(dot3(grad3[perm[AA+1]%12],x,y,z-1), dot3(grad3[perm[BA+1]%12],x-1,y,z-1), u),
+             lerp(dot3(grad3[perm[AB+1]%12],x,y-1,z-1), dot3(grad3[perm[BB+1]%12],x-1,y-1,z-1), u), v), w);
+    }
+  };
+})();
+
+// ─── Firefly (Kuramoto oscillator) ───
+const CLUSTERS = 7;
+const PER_CLUSTER = 35;
+const COUPLING_RANGE = 120;
+const COUPLING_STRENGTH = 0.04;  // Kuramoto K
+const NATURAL_FREQ_BASE = 0.6;
+const NATURAL_FREQ_SPREAD = 0.15;
+
+const PALETTES = [
+  { h: 80, s: 90, l: 60 },   // warm yellow-green
+  { h: 95, s: 85, l: 55 },   // lime
+  { h: 55, s: 95, l: 60 },   // gold
+  { h: 165, s: 80, l: 55 },  // cyan-teal
+  { h: 45, s: 100, l: 65 },  // amber
+  { h: 140, s: 75, l: 50 },  // green
+  { h: 70, s: 90, l: 55 },   // chartreuse
+];
+
+class Firefly {
+  constructor(cx, cy, clusterId) {
+    this.cx = cx; this.cy = cy;
+    this.clusterId = clusterId;
+    // Wander position
+    this.x = cx + (Math.random() - 0.5) * 160;
+    this.y = cy + (Math.random() - 0.5) * 160;
+    // Oscillator
+    this.phase = Math.random() * Math.PI * 2;
+    this.naturalFreq = NATURAL_FREQ_BASE + (Math.random() - 0.5) * NATURAL_FREQ_SPREAD;
+    // Visual
+    const pal = PALETTES[clusterId % PALETTES.length];
+    this.hue = pal.h + (Math.random() - 0.5) * 15;
+    this.sat = pal.s;
+    this.lit = pal.l;
+    this.baseRadius = 2 + Math.random() * 2;
+    this.brightness = 0;
+    // Movement
+    this.noiseOffX = Math.random() * 1000;
+    this.noiseOffY = Math.random() * 1000;
+    this.speed = 0.3 + Math.random() * 0.5;
+  }
+
+  update(time, dt, allFireflies) {
+    // Move via noise
+    const nx = Noise.noise3D(this.noiseOffX + time * 0.15, this.noiseOffY, 0) * 1.2;
+    const ny = Noise.noise3D(this.noiseOffX, this.noiseOffY + time * 0.15, 1) * 1.2;
+    this.x += nx * this.speed;
+    this.y += ny * this.speed;
+
+    // Gently drift back toward cluster center
+    this.x += (this.cx - this.x) * 0.001;
+    this.y += (this.cy - this.y) * 0.001;
+
+    // Mouse attraction
+    if (mouseActive) {
+      const dx = mx - this.x, dy = my - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 250) {
+        const force = (1 - dist / 250) * 0.6;
+        this.x += (dx / dist) * force;
+        this.y += (dy / dist) * force;
+      }
+    }
+
+    // ─── Kuramoto coupling ───
+    let coupling = 0;
+    let neighborCount = 0;
+    for (let i = 0; i < allFireflies.length; i++) {
+      const other = allFireflies[i];
+      if (other === this) continue;
+      const dx = other.x - this.x;
+      const dy = other.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < COUPLING_RANGE) {
+        coupling += Math.sin(other.phase - this.phase);
+        neighborCount++;
+      }
+    }
+    if (neighborCount > 0) {
+      coupling /= neighborCount;
+    }
+
+    // Phase update: dθ/dt = ω + (K/N) Σ sin(θⱼ - θᵢ)
+    this.phase += (this.naturalFreq + COUPLING_STRENGTH * coupling) * dt;
+
+    // Brightness from phase (pulse at phase = 0)
+    const pulse = Math.cos(this.phase);
+    this.brightness = Math.max(0, pulse);
+    // Make it sharper — more firefly-like
+    this.brightness = Math.pow(this.brightness, 3);
+  }
+
+  draw(ctx) {
+    const alpha = this.brightness;
+    if (alpha < 0.01) return;
+
+    const r = this.baseRadius + alpha * 5;
+
+    // Outer glow
+    ctx.globalCompositeOperation = 'lighter';
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 6);
+    grad.addColorStop(0, `hsla(${this.hue}, ${this.sat}%, ${this.lit}%, ${alpha * 0.25})`);
+    grad.addColorStop(1, `hsla(${this.hue}, ${this.sat}%, ${this.lit}%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(this.x - r * 6, this.y - r * 6, r * 12, r * 12);
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, ${this.sat}%, ${this.lit + 20}%, ${alpha * 0.9})`;
+    ctx.fill();
+
+    // Bright center
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 40%, 95%, ${alpha * 0.8})`;
+    ctx.fill();
+  }
+}
+
+// ─── Initialize clusters ───
+const fireflies = [];
+for (let c = 0; c < CLUSTERS; c++) {
+  const cx = 100 + Math.random() * (W - 200);
+  const cy = 100 + Math.random() * (H - 200);
+  for (let i = 0; i < PER_CLUSTER; i++) {
+    fireflies.push(new Firefly(cx, cy, c));
+  }
+}
+
+// ─── Click burst ───
+canvas.addEventListener('click', e => {
+  // Spawn 25 temporary fireflies that quickly fade
+  for (let i = 0; i < 25; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 30;
+    const f = new Firefly(e.clientX, e.clientY, Math.floor(Math.random() * CLUSTERS));
+    f.x = e.clientX + Math.cos(angle) * dist;
+    f.y = e.clientY + Math.sin(angle) * dist;
+    f.naturalFreq = 2 + Math.random(); // fast pulse
+    f.life = 3 + Math.random() * 2;
+    f.isBurst = true;
+    fireflies.push(f);
+  }
+});
+
+// ─── Stars ───
+const stars = [];
+for (let i = 0; i < 120; i++) {
+  stars.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: 0.3 + Math.random() * 1.2,
+    twinkle: Math.random() * Math.PI * 2,
+    speed: 0.5 + Math.random() * 2
+  });
+}
+
+function drawStars(time) {
+  ctx.globalCompositeOperation = 'lighter';
+  for (const s of stars) {
+    const alpha = 0.15 + 0.15 * Math.sin(s.twinkle + time * s.speed);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(200, 210, 230, ${alpha})`;
+    ctx.fill();
+  }
+}
+
+// ─── Background glow orbs ───
+const glowOrbs = [];
+for (let i = 0; i < 30; i++) {
+  glowOrbs.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.2,
+    vy: (Math.random() - 0.5) * 0.2,
+    radius: 40 + Math.random() * 80,
+    hue: 60 + Math.random() * 80,
+    alpha: 0.005 + Math.random() * 0.008,
+    pulse: Math.random() * Math.PI * 2
+  });
+}
+
+function drawGlowOrbs(time) {
+  ctx.globalCompositeOperation = 'screen';
+  for (const g of glowOrbs) {
+    g.x += g.vx; g.y += g.vy;
+    g.pulse += 0.008;
+    if (g.x < -g.radius) g.x = W + g.radius;
+    if (g.x > W + g.radius) g.x = -g.radius;
+    if (g.y < -g.radius) g.y = H + g.radius;
+    if (g.y > H + g.radius) g.y = -g.radius;
+    const r = g.radius + Math.sin(g.pulse) * 15;
+    const a = g.alpha + Math.sin(g.pulse) * 0.003;
+    const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r);
+    grad.addColorStop(0, `hsla(${g.hue}, 70%, 40%, ${a})`);
+    grad.addColorStop(1, `hsla(${g.hue}, 70%, 40%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(g.x - r, g.y - r, r * 2, r * 2);
+  }
+}
+
+// ─── Order parameter (sync measure) ───
+function computeOrderParam() {
+  let sumCos = 0, sumSin = 0;
+  for (const f of fireflies) {
+    sumCos += Math.cos(f.phase);
+    sumSin += Math.sin(f.phase);
+  }
+  return Math.sqrt(sumCos * sumCos + sumSin * sumSin) / fireflies.length;
+}
+
+// ─── Main loop ───
+let lastTime = 0;
+const startTime = performance.now();
+
+function animate(timestamp) {
+  const time = (timestamp - startTime) / 1000;
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+
+  // Fade
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(1, 2, 4, 0.15)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawStars(time);
+  drawGlowOrbs(time);
+
+  // Update & draw fireflies
+  for (let i = fireflies.length - 1; i >= 0; i--) {
+    const f = fireflies[i];
+    if (f.isBurst) {
+      f.life -= dt;
+      if (f.life <= 0) { fireflies.splice(i, 1); continue; }
+    }
+    f.update(time, dt, fireflies);
+    f.draw(ctx);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Update info text with sync level
+  const order = computeOrderParam();
+  if (info.style.opacity !== '0') {
+    const syncPct = Math.round(order * 100);
+    info.textContent = `synchronisation: ${syncPct}% · click to attract`;
+    // Fade out info after 10s
+    if (time > 10) info.style.opacity = '0';
+  }
+
+  requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
