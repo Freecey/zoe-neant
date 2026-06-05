@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stellar Breath</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #04060f; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Stellar Breath — Constellations that breathe ===
+
+const CONFIG = {
+  starCount: 320,
+  connectionDist: 140,
+  mouseRadius: 220,
+  mouseForce: 0.4,
+  breathSpeed: 0.0008,
+  driftSpeed: 0.15,
+  twinkleSpeed: 0.02,
+  minStarSize: 0.6,
+  maxStarSize: 2.8,
+};
+
+// Palette: deep navy base, gold accent, cool whites
+const PALETTE = {
+  bgTop: [4, 6, 15],
+  bgBot: [8, 12, 28],
+  starCold: [200, 215, 255],    // blue-white
+  starWarm: [255, 210, 120],    // gold
+  starPink: [255, 180, 200],    // soft rose (rare)
+  lineBase: [80, 120, 200],     // constellation line
+  lineGlow: [160, 200, 255],    // near-mouse glow
+};
+
+let stars = [];
+let bgBuf;
+let t = 0;
+
+class Star {
+  constructor() {
+    this.x = Math.random() * windowWidth;
+    this.y = Math.random() * windowHeight;
+    this.baseSize = CONFIG.minStarSize + Math.random() * (CONFIG.maxStarSize - CONFIG.minStarSize);
+    this.size = this.baseSize;
+    this.vx = (Math.random() - 0.5) * CONFIG.driftSpeed;
+    this.vy = (Math.random() - 0.5) * CONFIG.driftSpeed;
+    this.phase = Math.random() * Math.PI * 2;
+    this.twinkleRate = 0.5 + Math.random() * 1.5;
+    // Color: mostly cold white, sometimes warm, rarely pink
+    let r = Math.random();
+    if (r < 0.7) this.colorType = 'cold';
+    else if (r < 0.92) this.colorType = 'warm';
+    else this.colorType = 'pink';
+    this.depth = 0.3 + Math.random() * 0.7; // parallax depth
+  }
+
+  update(mx, my, breathVal) {
+    // Drift
+    this.x += this.vx * this.depth;
+    this.y += this.vy * this.depth;
+
+    // Wrap around
+    if (this.x < -10) this.x = width + 10;
+    if (this.x > width + 10) this.x = -10;
+    if (this.y < -10) this.y = height + 10;
+    if (this.y > height + 10) this.y = -10;
+
+    // Mouse gravity
+    let dx = mx - this.x;
+    let dy = my - this.y;
+    let distSq = dx * dx + dy * dy;
+    let dist = Math.sqrt(distSq);
+    if (dist < CONFIG.mouseRadius && dist > 1) {
+      let force = CONFIG.mouseForce * (1 - dist / CONFIG.mouseRadius) * this.depth;
+      this.x += dx / dist * force;
+      this.y += dy / dist * force;
+    }
+
+    // Breathing size modulation
+    let twinkle = Math.sin(t * this.twinkleRate * CONFIG.twinkleSpeed * 60 + this.phase);
+    this.size = this.baseSize * (0.7 + 0.3 * breathVal) * (0.6 + 0.4 * (twinkle * 0.5 + 0.5));
+  }
+
+  getColor(alpha) {
+    let c;
+    if (this.colorType === 'cold') c = PALETTE.starCold;
+    else if (this.colorType === 'warm') c = PALETTE.starWarm;
+    else c = PALETTE.starPink;
+    return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+  }
+
+  draw() {
+    let alpha = 0.5 + this.size / CONFIG.maxStarSize * 0.5;
+    noStroke();
+
+    // Outer glow
+    if (this.size > 1.2) {
+      let glowAlpha = alpha * 0.15;
+      fill(this.getColor(glowAlpha));
+      let glowSize = this.size * 4;
+      ellipse(this.x, this.y, glowSize, glowSize);
+    }
+
+    // Core
+    fill(this.getColor(alpha));
+    ellipse(this.x, this.y, this.size * 2, this.size * 2);
+
+    // Bright center
+    fill(255, 255, 255, alpha * 0.7);
+    ellipse(this.x, this.y, this.size * 0.8, this.size * 0.8);
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+
+  // Background gradient buffer
+  bgBuf = createGraphics(width, height);
+  renderBg(bgBuf);
+
+  // Spawn stars
+  for (let i = 0; i < CONFIG.starCount; i++) {
+    stars.push(new Star());
+  }
+}
+
+function renderBg(buf) {
+  // Deep space gradient with subtle noise texture
+  let ctx = buf.drawingContext;
+  let grad = ctx.createLinearGradient(0, 0, 0, height);
+  grad.addColorStop(0, `rgb(${PALETTE.bgTop.join(',')})`);
+  grad.addColorStop(0.5, `rgb(${PALETTE.bgBot.join(',')})`);
+  grad.addColorStop(1, `rgb(${PALETTE.bgTop.join(',')})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Subtle nebula blobs
+  ctx.globalAlpha = 0.03;
+  for (let i = 0; i < 5; i++) {
+    let nx = Math.random() * width;
+    let ny = Math.random() * height;
+    let nr = 150 + Math.random() * 300;
+    let ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+    let hue = Math.random() > 0.5 ? '60,80,180' : '120,50,140';
+    ng.addColorStop(0, `rgba(${hue},1)`);
+    ng.addColorStop(1, `rgba(${hue},0)`);
+    ctx.fillStyle = ng;
+    ctx.fillRect(0, 0, width, height);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  t += deltaTime;
+  let breathVal = Math.sin(t * CONFIG.breathSpeed) * 0.5 + 0.5;
+
+  // Background
+  image(bgBuf, 0, 0);
+
+  // Subtle vignette pulse
+  let vignetteAlpha = 0.3 + breathVal * 0.1;
+  let ctx = drawingContext;
+  let vig = ctx.createRadialGradient(width / 2, height / 2, height * 0.2, width / 2, height / 2, height * 0.9);
+  vig.addColorStop(0, `rgba(4,6,15,0)`);
+  vig.addColorStop(1, `rgba(4,6,15,${vignetteAlpha})`);
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, width, height);
+
+  // Update stars
+  let mx = mouseX;
+  let my = mouseY;
+  // If mouse hasn't moved, use center
+  if (mx === 0 && my === 0) { mx = width / 2; my = height / 2; }
+
+  for (let s of stars) s.update(mx, my, breathVal);
+
+  // Draw constellation lines
+  let maxDist = CONFIG.connectionDist;
+  let maxDistSq = maxDist * maxDist;
+  for (let i = 0; i < stars.length; i++) {
+    let a = stars[i];
+    for (let j = i + 1; j < stars.length; j++) {
+      let b = stars[j];
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      let dSq = dx * dx + dy * dy;
+      if (dSq < maxDistSq) {
+        let d = Math.sqrt(dSq);
+        let baseAlpha = (1 - d / maxDist);
+
+        // Boost near mouse
+        let midX = (a.x + b.x) / 2;
+        let midY = (a.y + b.y) / 2;
+        let mDist = Math.sqrt((midX - mx) * (midX - mx) + (midY - my) * (midY - my));
+        let mouseBoost = mDist < CONFIG.mouseRadius ? (1 - mDist / CONFIG.mouseRadius) : 0;
+
+        let alpha = baseAlpha * (0.04 + 0.02 * breathVal) + mouseBoost * 0.15;
+        alpha = Math.min(alpha, 0.35);
+
+        let lc = mouseBoost > 0.1 ? PALETTE.lineGlow : PALETTE.lineBase;
+        stroke(lc[0], lc[1], lc[2], alpha * 255);
+        strokeWeight(0.3 + mouseBoost * 0.7);
+        line(a.x, a.y, b.x, b.y);
+      }
+    }
+  }
+
+  // Draw stars on top
+  noStroke();
+  for (let s of stars) s.draw();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  bgBuf = createGraphics(width, height);
+  renderBg(bgBuf);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('stellar-breath', 'png');
+  if (key === 'r' || key === 'R') {
+    stars = [];
+    for (let i = 0; i < CONFIG.starCount; i++) stars.push(new Star());
+  }
+}
+</script>
+</body>
+</html>

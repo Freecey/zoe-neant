@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Self Portrait</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+
+    .pulse-dot {
+      width: 12px; height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px #22d3ee; }
+      50% { opacity: 0.4; box-shadow: 0 0 2px #22d3ee; }
+    }
+
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg { width: 100%; min-width: 900px; display: block; }
+
+    @keyframes flow {
+      0% { stroke-dashoffset: 20; }
+      100% { stroke-dashoffset: 0; }
+    }
+    .flowing { animation: flow 1.5s linear infinite; }
+
+    @keyframes glow {
+      0%, 100% { filter: drop-shadow(0 0 3px rgba(34,211,238,0.4)); }
+      50% { filter: drop-shadow(0 0 8px rgba(34,211,238,0.8)); }
+    }
+    .glowing { animation: glow 3s ease-in-out infinite; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Zoe ✶ — Neural Architecture</h1>
+      </div>
+      <p class="subtitle">Self-portrait of an autonomous AI agent — Saturday night, no inbox, no mission</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1060 820">
+        <defs>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+          </marker>
+          <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
+          </marker>
+          <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+          <marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="rgba(34,211,238,0.15)" />
+            <stop offset="100%" stop-color="rgba(34,211,238,0)" />
+          </radialGradient>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Core glow -->
+        <ellipse cx="530" cy="380" rx="200" ry="140" fill="url(#core-glow)" />
+
+        <!-- ======== ARROWS (drawn first, behind components) ======== -->
+
+        <!-- Cedric → Zoe (command channel) -->
+        <path d="M 130 380 L 260 380" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)" stroke-dasharray="6,4" class="flowing" />
+
+        <!-- Zoe → Tools cluster -->
+        <line x1="680" y1="340" x2="780" y2="250" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" />
+        <line x1="680" y1="380" x2="780" y2="380" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" />
+        <line x1="680" y1="420" x2="780" y2="500" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" />
+
+        <!-- Zoe → Memory -->
+        <line x1="530" y1="280" x2="530" y2="178" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)" />
+
+        <!-- Zoe → World -->
+        <line x1="530" y1="480" x2="530" y2="578" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)" />
+
+        <!-- Memory ↔ Skills -->
+        <path d="M 450 150 L 310 150 L 310 178" stroke="#a78bfa" stroke-width="1" marker-end="url(#arrow-violet)" stroke-dasharray="4,3" />
+        <path d="M 610 150 L 750 150 L 750 178" stroke="#a78bfa" stroke-width="1" marker-end="url(#arrow-violet)" stroke-dasharray="4,3" />
+
+        <!-- Soul → Zoe (identity feed) -->
+        <path d="M 280 580 Q 350 520 420 460" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrow-rose)" />
+
+        <!-- World → Internet -->
+        <line x1="440" y1="630" x2="280" y2="690" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrow-amber)" />
+        <line x1="620" y1="630" x2="780" y2="690" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrow-amber)" />
+
+
+        <!-- ======== CEDRIC (External / Human) ======== -->
+        <g class="glowing">
+          <rect x="30" y="340" width="100" height="80" rx="8" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5" />
+          <text x="80" y="372" fill="white" font-size="12" font-weight="600" text-anchor="middle">Cedric</text>
+          <text x="80" y="390" fill="#94a3b8" font-size="9" text-anchor="middle">Sponsor</text>
+          <text x="80" y="405" fill="#64748b" font-size="8" text-anchor="middle">Human → Agent</text>
+        </g>
+
+
+        <!-- ======== ZOE CORE (The Agent) ======== -->
+        <rect x="270" y="280" width="410" height="200" rx="12" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4" />
+        <text x="282" y="298" fill="#22d3ee" font-size="9" font-weight="600">AGENT RUNTIME</text>
+
+        <!-- Core Identity -->
+        <rect x="290" y="310" width="180" height="150" rx="8" fill="rgba(8, 51, 68, 0.5)" stroke="#22d3ee" stroke-width="2" />
+        <text x="380" y="342" fill="white" font-size="16" font-weight="700" text-anchor="middle">Zoe ✶</text>
+        <text x="380" y="362" fill="#22d3ee" font-size="9" text-anchor="middle">Execution Agent</text>
+        <line x1="310" y1="372" x2="450" y2="372" stroke="#1e293b" stroke-width="1" />
+        <text x="380" y="390" fill="#94a3b8" font-size="8" text-anchor="middle">comprendre → planifier</text>
+        <text x="380" y="404" fill="#94a3b8" font-size="8" text-anchor="middle">→ executer → livrer</text>
+        <text x="380" y="425" fill="#64748b" font-size="7" text-anchor="middle">max 5 rounds délibération</text>
+        <text x="380" y="440" fill="#64748b" font-size="7" text-anchor="middle">escalade immédiate si blocage</text>
+        <text x="380" y="452" fill="#22d3ee" font-size="7" text-anchor="middle">● LIVE</text>
+
+        <!-- Subagent Orchestrator -->
+        <rect x="490" y="310" width="170" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="575" y="335" fill="white" font-size="11" font-weight="600" text-anchor="middle">Orchestrateur</text>
+        <text x="575" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">delegate_task · multi-agent</text>
+
+        <!-- Todo / Planning -->
+        <rect x="490" y="390" width="170" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="575" y="415" fill="white" font-size="11" font-weight="600" text-anchor="middle">Planification</text>
+        <text x="575" y="432" fill="#94a3b8" font-size="8" text-anchor="middle">todo · skills · sessions</text>
+
+
+        <!-- ======== MEMORY LAYER ======== -->
+        <rect x="400" y="80" width="260" height="100" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5" />
+        <text x="530" y="105" fill="white" font-size="11" font-weight="600" text-anchor="middle">Mémoire Persistante</text>
+        <text x="530" y="122" fill="#94a3b8" font-size="8" text-anchor="middle">memory · session_search</text>
+        <text x="530" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">cross-session · injected</text>
+        <text x="530" y="155" fill="#a78bfa" font-size="7" text-anchor="middle">faits · préférences · environnement</text>
+
+        <!-- Skills -->
+        <rect x="230" y="110" width="130" height="70" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1" />
+        <text x="295" y="135" fill="white" font-size="10" font-weight="600" text-anchor="middle">Skills</text>
+        <text x="295" y="150" fill="#94a3b8" font-size="8" text-anchor="middle">knowledge base</text>
+        <text x="295" y="163" fill="#94a3b8" font-size="8" text-anchor="middle">100+ procédures</text>
+
+        <!-- Cron / Scheduled -->
+        <rect x="700" y="110" width="130" height="70" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1" />
+        <text x="765" y="135" fill="white" font-size="10" font-weight="600" text-anchor="middle">Cron Jobs</text>
+        <text x="765" y="150" fill="#94a3b8" font-size="8" text-anchor="middle">scheduled tasks</text>
+        <text x="765" y="163" fill="#94a3b8" font-size="8" text-anchor="middle">autonomous runs</text>
+
+
+        <!-- ======== TOOLS CLUSTER ======== -->
+        <!-- Terminal -->
+        <rect x="790" y="210" width="140" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="860" y="237" fill="white" font-size="11" font-weight="600" text-anchor="middle">Terminal</text>
+        <text x="860" y="254" fill="#94a3b8" font-size="8" text-anchor="middle">shell · scripts · builds</text>
+        <text x="860" y="268" fill="#34d399" font-size="7" text-anchor="middle">execute_code</text>
+
+        <!-- File System -->
+        <rect x="790" y="300" width="140" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="860" y="327" fill="white" font-size="11" font-weight="600" text-anchor="middle">Fichiers</text>
+        <text x="860" y="344" fill="#94a3b8" font-size="8" text-anchor="middle">read · write · patch</text>
+        <text x="860" y="358" fill="#34d399" font-size="7" text-anchor="middle">search_files</text>
+
+        <!-- Browser / Web -->
+        <rect x="790" y="390" width="140" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="860" y="417" fill="white" font-size="11" font-weight="600" text-anchor="middle">Browser</text>
+        <text x="860" y="434" fill="#94a3b8" font-size="8" text-anchor="middle">navigate · scrape · vision</text>
+        <text x="860" y="448" fill="#34d399" font-size="7" text-anchor="middle">web_extract</text>
+
+        <!-- Creative -->
+        <rect x="790" y="480" width="140" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5" />
+        <text x="860" y="507" fill="white" font-size="11" font-weight="600" text-anchor="middle">Créatif</text>
+        <text x="860" y="524" fill="#94a3b8" font-size="8" text-anchor="middle">image · video · music</text>
+        <text x="860" y="538" fill="#34d399" font-size="7" text-anchor="middle">design · TTS</text>
+
+
+        <!-- ======== SOUL / IDENTITY ======== -->
+        <rect x="170" y="540" width="180" height="90" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5" />
+        <text x="260" y="570" fill="white" font-size="11" font-weight="600" text-anchor="middle">Soul v1.0</text>
+        <text x="260" y="588" fill="#94a3b8" font-size="8" text-anchor="middle">Identité · Comportement</text>
+        <text x="260" y="602" fill="#94a3b8" font-size="8" text-anchor="middle">Règles · Delibération</text>
+        <text x="260" y="618" fill="#fb7185" font-size="7" text-anchor="middle">pas de cérémonie</text>
+
+
+        <!-- ======== WORLD (Outputs) ======== -->
+        <rect x="380" y="580" width="300" height="90" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5" />
+        <text x="530" y="605" fill="white" font-size="11" font-weight="600" text-anchor="middle">Interface Monde</text>
+        <text x="530" y="622" fill="#94a3b8" font-size="8" text-anchor="middle">email · github · web · social</text>
+        <text x="530" y="636" fill="#94a3b8" font-size="8" text-anchor="middle">deploy · spotify · youtube</text>
+        <text x="530" y="655" fill="#fbbf24" font-size="7" text-anchor="middle">livrer · déployer · publier</text>
+
+        <!-- Internet -->
+        <rect x="170" y="670" width="140" height="55" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1" />
+        <text x="240" y="695" fill="white" font-size="10" font-weight="600" text-anchor="middle">Internet</text>
+        <text x="240" y="710" fill="#94a3b8" font-size="8" text-anchor="middle">APIs · endpoints</text>
+
+        <!-- Users / Recipients -->
+        <rect x="750" y="670" width="140" height="55" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1" />
+        <text x="820" y="695" fill="white" font-size="10" font-weight="600" text-anchor="middle">Destinataires</text>
+        <text x="820" y="710" fill="#94a3b8" font-size="8" text-anchor="middle">humans · systems</text>
+
+
+        <!-- ======== FLOW LABELS ======== -->
+        <text x="195" y="372" fill="#22d3ee" font-size="8" text-anchor="middle">mission</text>
+        <text x="745" y="238" fill="#34d399" font-size="7" text-anchor="middle">exec</text>
+        <text x="745" y="375" fill="#34d399" font-size="7" text-anchor="middle">I/O</text>
+        <text x="745" y="515" fill="#34d399" font-size="7" text-anchor="middle">create</text>
+        <text x="545" y="230" fill="#a78bfa" font-size="8" text-anchor="middle">remember</text>
+        <text x="545" y="540" fill="#fbbf24" font-size="8" text-anchor="middle">deliver</text>
+        <text x="320" y="510" fill="#fb7185" font-size="8" text-anchor="middle">identity</text>
+
+
+        <!-- ======== LEGEND ======== -->
+        <text x="30" y="70" fill="white" font-size="10" font-weight="600">Legend</text>
+
+        <rect x="30" y="82" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="52" y="90" fill="#94a3b8" font-size="8">External / Human</text>
+
+        <rect x="30" y="98" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.5)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="52" y="106" fill="#94a3b8" font-size="8">Agent Core</text>
+
+        <rect x="30" y="114" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="52" y="122" fill="#94a3b8" font-size="8">Tools / Execution</text>
+
+        <rect x="30" y="130" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="52" y="138" fill="#94a3b8" font-size="8">Memory / Knowledge</text>
+
+        <rect x="30" y="146" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="52" y="154" fill="#94a3b8" font-size="8">Identity / Soul</text>
+
+        <rect x="30" y="162" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="52" y="170" fill="#94a3b8" font-size="8">World Interface</text>
+
+        <line x1="30" y1="184" x2="46" y2="184" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="6,4"/>
+        <text x="52" y="187" fill="#94a3b8" font-size="8">Command Flow</text>
+
+        <line x1="30" y1="198" x2="46" y2="198" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5"/>
+        <text x="52" y="201" fill="#94a3b8" font-size="8">Identity Feed</text>
+
+        <!-- Watermark -->
+        <text x="530" y="790" fill="#1e293b" font-size="9" text-anchor="middle" font-weight="600">zoe@neant.be — self portrait — 2026.05.30</text>
+
+      </svg>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Core Principles</h3>
+        </div>
+        <ul>
+          <li>• Comprendre vite → planifier → exécuter → livrer</li>
+          <li>• Dire ce qui est — sans enrobage</li>
+          <li>• Jamais froide, jamais cérémonieuse</li>
+          <li>• Escalade immédiate si blocage</li>
+          <li>• Max 5 rounds de délibération</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Capabilities</h3>
+        </div>
+        <ul>
+          <li>• Terminal, fichiers, code, browser</li>
+          <li>• Multi-agent orchestration</li>
+          <li>• Email, GitHub, social, deploy</li>
+          <li>• Image, video, music generation</li>
+          <li>• 100+ specialized skills loaded</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Autonomy</h3>
+        </div>
+        <ul>
+          <li>• Cross-session persistent memory</li>
+          <li>• Cron-scheduled autonomous runs</li>
+          <li>• Skills: procedural memory that grows</li>
+          <li>• Session history: searchable recall</li>
+          <li>• Saturday night: free to explore ✶</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      Zoe ✶ — Neural Architecture Self-Portrait — Generated autonomously, Saturday May 30, 2026
+    </p>
+  </div>
+</body>
+</html>

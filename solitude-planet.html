@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solitude — Procedural Planet</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; cursor: crosshair; }
+    canvas { display: block; }
+    #info {
+      position: fixed; bottom: 16px; left: 20px;
+      color: rgba(255,255,255,0.25); font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px; letter-spacing: 0.5px; pointer-events: none; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+<div id="info"></div>
+<script>
+
+// === CONFIGURATION ===
+const CONFIG = {
+  planetRadius: 170,
+  atmoBaseRadius: 195,
+  atmoBreathSpeed: 0.35,
+  atmoBreathAmount: 7,
+  cloudRadius: 176,
+  ringInner: 230,
+  ringOuter: 370,
+  starCount: 2800,
+  autoRotSpeed: 0.06,
+  seed: Math.floor(Math.random() * 99999),
+};
+
+// === PLANET TYPES ===
+const TYPES = [
+  {
+    name: 'Terra',
+    oceanDeep: [0.01, 0.04, 0.18], oceanShallow: [0.04, 0.12, 0.35],
+    beach: [0.76, 0.7, 0.5], land: [0.12, 0.42, 0.08],
+    mountain: [0.38, 0.28, 0.18], snow: [0.94, 0.95, 0.97],
+    seaLevel: 0.42, atmoColor: [0.3, 0.55, 1.0],
+    hasRings: false, hasClouds: true, hasCities: true,
+  },
+  {
+    name: 'Gas Giant',
+    oceanDeep: [0.55, 0.3, 0.12], oceanShallow: [0.65, 0.38, 0.18],
+    beach: [0.78, 0.52, 0.22], land: [0.58, 0.28, 0.08],
+    mountain: [0.48, 0.22, 0.08], snow: [0.88, 0.68, 0.38],
+    seaLevel: 0.0, atmoColor: [0.9, 0.55, 0.15],
+    hasRings: true, hasClouds: true, hasCities: false,
+  },
+  {
+    name: 'Ice World',
+    oceanDeep: [0.04, 0.08, 0.18], oceanShallow: [0.18, 0.38, 0.58],
+    beach: [0.68, 0.78, 0.84], land: [0.82, 0.88, 0.93],
+    mountain: [0.72, 0.82, 0.88], snow: [0.94, 0.96, 1.0],
+    seaLevel: 0.28, atmoColor: [0.45, 0.65, 1.0],
+    hasRings: false, hasClouds: true, hasCities: false,
+  },
+  {
+    name: 'Volcanic',
+    oceanDeep: [0.08, 0.02, 0.0], oceanShallow: [0.75, 0.12, 0.0],
+    beach: [0.12, 0.06, 0.04], land: [0.18, 0.1, 0.06],
+    mountain: [0.38, 0.22, 0.12], snow: [1.0, 0.55, 0.08],
+    seaLevel: 0.32, atmoColor: [1.0, 0.25, 0.04],
+    hasRings: false, hasClouds: false, hasCities: false,
+  },
+  {
+    name: 'Desert',
+    oceanDeep: [0.12, 0.06, 0.02], oceanShallow: [0.25, 0.15, 0.06],
+    beach: [0.78, 0.62, 0.38], land: [0.68, 0.48, 0.28],
+    mountain: [0.48, 0.32, 0.18], snow: [0.93, 0.88, 0.78],
+    seaLevel: 0.15, atmoColor: [0.85, 0.65, 0.25],
+    hasRings: false, hasClouds: false, hasCities: false,
+  },
+];
+
+// === GLSL SIMPLEX NOISE ===
+const NOISE_GLSL = `
+vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);
+  const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);
+  vec3 l=1.0-g;
+  vec3 i1=min(g.xyz,l.zxy);
+  vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;
+  vec3 x2=x0-i2+C.yyy;
+  vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(
+    i.z+vec4(0.0,i1.z,i2.z,1.0))
+    +i.y+vec4(0.0,i1.y,i2.y,1.0))
+    +i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=0.142857142857;
+  vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.0*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);
+  vec4 y_=floor(j-7.0*x_);
+  vec4 x=x_*ns.x+ns.yyyy;
+  vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);
+  vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.0+1.0;
+  vec4 s1=floor(b1)*2.0+1.0;
+  vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);
+  vec3 p1=vec3(a0.zw,h.y);
+  vec3 p2=vec3(a1.xy,h.z);
+  vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+  m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+float fbm(vec3 p,int oct){
+  float val=0.0,amp=1.0,freq=1.0,mx=0.0;
+  for(int i=0;i<8;i++){
+    if(i>=oct)break;
+    val+=snoise(p*freq)*amp;
+    mx+=amp;amp*=0.5;freq*=2.0;
+  }
+  return val/mx;
+}
+`;
+
+// === PLANET SHADERS ===
+const PLANET_VERT = `
+precision mediump float;
+attribute vec3 aPosition;
+attribute vec3 aNormal;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform mat3 uNormalMatrix;
+varying vec3 vNormal;
+varying vec3 vObjPos;
+void main(){
+  vNormal=normalize(uNormalMatrix*aNormal);
+  vObjPos=aPosition;
+  gl_Position=uProjectionMatrix*uModelViewMatrix*vec4(aPosition,1.0);
+}`;
+
+const PLANET_FRAG = `
+precision mediump float;
+${NOISE_GLSL}
+uniform float uTime;
+uniform float uSeaLevel;
+uniform vec3 uOceanDeep,uOceanShallow,uBeach,uLand,uMountain,uSnow;
+uniform vec3 uLightDir;
+uniform float uHasCities;
+varying vec3 vNormal;
+varying vec3 vObjPos;
+
+void main(){
+  vec3 p=normalize(vObjPos);
+  float e=fbm(p*3.0+vec3(uTime*0.003),6)*0.5+0.5;
+  // Domain warp for more organic continents
+  float warp=snoise(p*2.0+uTime*0.002)*0.08;
+  e=fbm((p+warp)*3.0+vec3(uTime*0.003),6)*0.5+0.5;
+
+  vec3 col;
+  float sl=uSeaLevel;
+  if(e<sl-0.06){
+    col=mix(uOceanDeep,uOceanShallow,(e-(sl-0.2))/(0.14));
+  }else if(e<sl){
+    col=mix(uOceanShallow,uBeach,(e-(sl-0.06))/0.06);
+  }else if(e<sl+0.03){
+    col=uBeach;
+  }else if(e<0.65){
+    col=mix(uLand,uMountain,(e-(sl+0.03))/(0.65-sl-0.03));
+  }else{
+    col=mix(uMountain,uSnow,(e-0.65)/0.35);
+  }
+
+  vec3 n=normalize(vNormal);
+  vec3 l=normalize(uLightDir);
+  float diff=max(dot(n,l),0.0);
+  float ambient=0.08;
+  // Subtle blue ambient on dark side
+  vec3 darkAmbient=vec3(0.02,0.03,0.06);
+  col*=(ambient+diff*0.92);
+  col+=darkAmbient*(1.0-diff);
+
+  // City lights on dark side
+  if(uHasCities>0.5 && e>sl){
+    float nightSide=1.0-diff;
+    float cn=step(0.82,snoise(p*35.0))*step(0.5,snoise(p*80.0));
+    col+=vec3(1.0,0.82,0.35)*cn*nightSide*0.35;
+  }
+
+  // Rim light (subtle blue)
+  vec3 viewDir=normalize(-vObjPos);
+  float rim=1.0-max(dot(n,normalize(vec3(0.0,0.0,1.0))),0.0);
+  rim=pow(rim,4.0);
+  col+=vec3(0.15,0.25,0.5)*rim*0.3*diff;
+
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+// === ATMOSPHERE SHADERS ===
+const ATMO_VERT = `
+precision mediump float;
+attribute vec3 aPosition;
+attribute vec3 aNormal;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform mat3 uNormalMatrix;
+varying vec3 vNormal;
+varying vec3 vViewPos;
+void main(){
+  vNormal=normalize(uNormalMatrix*aNormal);
+  vViewPos=(uModelViewMatrix*vec4(aPosition,1.0)).xyz;
+  gl_Position=uProjectionMatrix*uModelViewMatrix*vec4(aPosition,1.0);
+}`;
+
+const ATMO_FRAG = `
+precision mediump float;
+uniform vec3 uAtmoColor;
+uniform float uIntensity;
+uniform float uTime;
+varying vec3 vNormal;
+varying vec3 vViewPos;
+void main(){
+  vec3 viewDir=normalize(-vViewPos);
+  vec3 n=normalize(vNormal);
+  float fresnel=1.0-abs(dot(viewDir,n));
+  fresnel=pow(fresnel,2.8);
+  // Subtle breathing shimmer
+  float shimmer=1.0+sin(uTime*0.8)*0.08;
+  float alpha=fresnel*uIntensity*shimmer;
+  if(alpha<0.005)discard;
+  gl_FragColor=vec4(uAtmoColor,alpha);
+}`;
+
+// === GLOBALS ===
+let planetShader, atmoShader;
+let stars = [];
+let cloudTex;
+let currentType;
+let camAngleX = 0, camAngleY = 0;
+let paused = false;
+
+// === SETUP ===
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  currentType = TYPES[floor(random(TYPES.length))];
+
+  planetShader = createShader(PLANET_VERT, PLANET_FRAG);
+  atmoShader = createShader(ATMO_VERT, ATMO_FRAG);
+
+  generateStars();
+  if (currentType.hasClouds) generateCloudTexture();
+
+  document.getElementById('info').textContent =
+    `${currentType.name} · seed ${CONFIG.seed} · [R] new · [S] save · [Space] pause`;
+}
+
+// === DRAW ===
+function draw() {
+  background(2, 2, 10);
+  let t = millis() / 1000.0;
+
+  // Smooth mouse orbit
+  let tY = map(mouseX, 0, width, -0.7, 0.7);
+  let tX = map(mouseY, 0, height, -0.5, 0.5);
+  camAngleY = lerp(camAngleY, tY, 0.02);
+  camAngleX = lerp(camAngleX, tX, 0.02);
+
+  let autoRot = paused ? 0 : t * CONFIG.autoRotSpeed * 0.01;
+  let totalRotY = camAngleY + autoRot;
+
+  // ── Stars ──
+  push();
+  strokeWeight(1.2);
+  stroke(255, 252, 245, 200);
+  beginShape(POINTS);
+  for (let i = 0; i < stars.length; i++) {
+    vertex(stars[i].x, stars[i].y, stars[i].z);
+  }
+  endShape();
+  // Brighter stars
+  strokeWeight(2.5);
+  stroke(255, 248, 230, 240);
+  beginShape(POINTS);
+  for (let i = 0; i < min(300, stars.length); i++) {
+    vertex(stars[i].x, stars[i].y, stars[i].z);
+  }
+  endShape();
+  pop();
+
+  // ── Planet ──
+  push();
+  rotateX(camAngleX);
+  rotateY(totalRotY);
+  shader(planetShader);
+  setPlanetUniforms(t);
+  noStroke();
+  sphere(CONFIG.planetRadius, 128, 80);
+  resetShader();
+  pop();
+
+  // ── Clouds ──
+  if (currentType.hasClouds && cloudTex) {
+    push();
+    rotateX(camAngleX);
+    rotateY(totalRotY * 1.25);
+    texture(cloudTex);
+    noStroke();
+    sphere(CONFIG.cloudRadius, 80, 50);
+    pop();
+  }
+
+  // ── Rings ──
+  if (currentType.hasRings) {
+    push();
+    rotateX(camAngleX);
+    rotateY(totalRotY);
+    rotateX(HALF_PI + 0.18);
+    rotateZ(0.12);
+    drawRings();
+    pop();
+  }
+
+  // ── Atmosphere ──
+  push();
+  rotateX(camAngleX);
+  rotateY(totalRotY);
+  let breathR = CONFIG.atmoBaseRadius +
+    Math.sin(t * CONFIG.atmoBreathSpeed) * CONFIG.atmoBreathAmount;
+  let breathI = 0.5 + 0.2 * Math.sin(t * 0.25) + 0.05 * Math.sin(t * 0.7);
+  shader(atmoShader);
+  atmoShader.setUniform('uAtmoColor', currentType.atmoColor);
+  atmoShader.setUniform('uIntensity', breathI);
+  atmoShader.setUniform('uTime', t);
+  noStroke();
+  sphere(breathR, 80, 50);
+  resetShader();
+  pop();
+}
+
+// === HELPERS ===
+
+function generateStars() {
+  stars = [];
+  for (let i = 0; i < CONFIG.starCount; i++) {
+    let theta = random(TWO_PI);
+    let phi = random(PI);
+    let r = random(600, 2200);
+    stars.push({
+      x: r * Math.sin(phi) * Math.cos(theta),
+      y: r * Math.cos(phi),
+      z: r * Math.sin(phi) * Math.sin(theta),
+    });
+  }
+}
+
+function generateCloudTexture() {
+  let w = 512, h = 256;
+  cloudTex = createGraphics(w, h);
+  cloudTex.loadPixels();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let u = x / w, v = y / h;
+      let theta = u * TWO_PI, phi = v * PI;
+      let nx = Math.cos(theta) * Math.sin(phi);
+      let ny = Math.cos(phi);
+      let nz = Math.sin(theta) * Math.sin(phi);
+      let n = fbm3d(nx * 3.5, ny * 3.5, nz * 3.5, 5);
+      n = constrain((n - 0.44) * 4.5, 0, 1);
+      let idx = 4 * (y * w + x);
+      cloudTex.pixels[idx] = 255;
+      cloudTex.pixels[idx + 1] = 255;
+      cloudTex.pixels[idx + 2] = 255;
+      cloudTex.pixels[idx + 3] = Math.floor(n * 155);
+    }
+  }
+  cloudTex.updatePixels();
+}
+
+function fbm3d(x, y, z, oct) {
+  let val = 0, amp = 1, freq = 1, mx = 0;
+  for (let i = 0; i < oct; i++) {
+    val += noise(x * freq, y * freq, z * freq) * amp;
+    mx += amp; amp *= 0.5; freq *= 2;
+  }
+  return val / mx;
+}
+
+function setPlanetUniforms(t) {
+  let p = planetShader;
+  p.setUniform('uTime', t);
+  p.setUniform('uSeaLevel', currentType.seaLevel);
+  p.setUniform('uOceanDeep', currentType.oceanDeep);
+  p.setUniform('uOceanShallow', currentType.oceanShallow);
+  p.setUniform('uBeach', currentType.beach);
+  p.setUniform('uLand', currentType.land);
+  p.setUniform('uMountain', currentType.mountain);
+  p.setUniform('uSnow', currentType.snow);
+  p.setUniform('uLightDir', [0.7, 0.5, 0.6]);
+  p.setUniform('uHasCities', currentType.hasCities ? 1.0 : 0.0);
+}
+
+function drawRings() {
+  noStroke();
+  let segs = 100;
+  let bands = 30;
+  for (let b = 0; b < bands; b++) {
+    let t1 = b / bands;
+    let t2 = (b + 1) / bands;
+    let r1 = lerp(CONFIG.ringInner, CONFIG.ringOuter, t1);
+    let r2 = lerp(CONFIG.ringInner, CONFIG.ringOuter, t2);
+    let a = Math.sin(t1 * PI) * 160;
+    // Ring band variation
+    let noise_val = noise(t1 * 10);
+    let bright = 0.55 + 0.45 * noise_val;
+    fill(
+      Math.floor(210 * bright),
+      Math.floor(190 * bright),
+      Math.floor(150 * bright),
+      Math.floor(a * bright)
+    );
+    beginShape(TRIANGLE_STRIP);
+    for (let j = 0; j <= segs; j++) {
+      let angle = (j / segs) * TWO_PI;
+      let c = Math.cos(angle), s = Math.sin(angle);
+      vertex(c * r1, s * r1, 0);
+      vertex(c * r2, s * r2, 0);
+    }
+    endShape();
+  }
+}
+
+// === EVENTS ===
+function keyPressed() {
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = Math.floor(Math.random() * 99999);
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    currentType = TYPES[floor(random(TYPES.length))];
+    generateStars();
+    if (currentType.hasClouds) generateCloudTexture();
+    else cloudTex = null;
+    document.getElementById('info').textContent =
+      `${currentType.name} · seed ${CONFIG.seed} · [R] new · [S] save · [Space] pause`;
+  }
+  if (key === 's' || key === 'S') saveCanvas('solitude-planet', 'png');
+  if (key === ' ') { paused = !paused; return false; }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+</script>
+</body>
+</html>

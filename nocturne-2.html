@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nocturne</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #040610; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Configuration ===
+const CONFIG = {
+  seed: 42,
+  particleCount: 220,
+  noiseScale: 0.003,
+  flowStrength: 0.8,
+  trailFade: 3,
+  pulseSpeed: 0.02,
+};
+
+// === Color Palette — deep ocean night ===
+const PALETTE = {
+  bgTop: [220, 60, 6],
+  bgBot: [240, 70, 3],
+  biolum: [
+    [190, 80, 90],   // cyan glow
+    [200, 70, 80],   // blue-cyan
+    [260, 60, 75],   // soft violet
+    [170, 90, 85],   // teal
+    [45, 90, 85],    // rare gold accent
+  ],
+};
+
+// === Global State ===
+let particles = [];
+let trailLayer, bgLayer;
+let zOff = 0;
+
+// === Helpers ===
+function fbm(x, y, octaves) {
+  let val = 0, amp = 1, freq = 1, sum = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += noise(x * freq, y * freq) * amp;
+    sum += amp;
+    amp *= 0.5;
+    freq *= 2.0;
+  }
+  return val / sum;
+}
+
+// === Classes ===
+class Firefly {
+  constructor() {
+    this.reset(true);
+  }
+
+  reset(initial) {
+    if (initial) {
+      this.x = Math.random() * 1920;
+      this.y = Math.random() * 1080;
+    }
+    this.vx = 0;
+    this.vy = 0;
+    // Pick color — 80% cool, 20% warm (gold)
+    let r = Math.random();
+    if (r < 0.15) {
+      this.col = PALETTE.biolum[4]; // gold
+    } else {
+      let idx = Math.floor(Math.random() * 4);
+      this.col = PALETTE.biolum[idx];
+    }
+    this.baseSize = Math.random() * 4 + 1.5;
+    this.pulsePhase = Math.random() * Math.PI * 2;
+    this.pulseFreq = CONFIG.pulseSpeed * (0.6 + Math.random() * 0.8);
+    this.speed = 0.5 + Math.random() * 1.2;
+    this.life = 1;
+    this.maxLife = 600 + Math.random() * 1200;
+    this.age = initial ? Math.random() * this.maxLife : 0;
+    this.trailAlpha = 8 + Math.random() * 12;
+    this.drift = Math.random() * 0.3;
+  }
+
+  update() {
+    // Flow field from noise
+    let angle = noise(this.x * CONFIG.noiseScale, this.y * CONFIG.noiseScale, zOff) * Math.PI * 4;
+    let fx = Math.cos(angle) * CONFIG.flowStrength * this.speed;
+    let fy = Math.sin(angle) * CONFIG.flowStrength * this.speed;
+
+    // Add gentle drift
+    fx += Math.sin(this.y * 0.005 + zOff * 2) * this.drift;
+    fy += Math.cos(this.x * 0.005 + zOff * 1.5) * this.drift;
+
+    this.vx = this.vx * 0.92 + fx * 0.08;
+    this.vy = this.vy * 0.92 + fy * 0.08;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Age
+    this.age++;
+    if (this.age > this.maxLife) {
+      this.life -= 0.01;
+    }
+
+    // Wrap edges with margin
+    let m = 50;
+    if (this.x < -m) this.x = 1920 + m;
+    if (this.x > 1920 + m) this.x = -m;
+    if (this.y < -m) this.y = 1080 + m;
+    if (this.y > 1080 + m) this.y = -m;
+
+    if (this.life <= 0) this.reset(false);
+  }
+
+  display() {
+    let pulse = Math.sin(this.pulsePhase + this.age * this.pulseFreq);
+    let brightness = 0.5 + pulse * 0.35;
+    let sz = this.baseSize * (0.7 + pulse * 0.3) * this.life;
+    let alpha = brightness * this.life;
+
+    // Outer glow on trail layer
+    let [h, s, b] = this.col;
+    trailLayer.noStroke();
+    trailLayer.fill(h, s * 0.7, b, alpha * this.trailAlpha * 0.3);
+    trailLayer.ellipse(this.x, this.y, sz * 6, sz * 6);
+
+    // Mid glow
+    trailLayer.fill(h, s * 0.5, Math.min(b + 10, 100), alpha * this.trailAlpha * 0.5);
+    trailLayer.ellipse(this.x, this.y, sz * 3, sz * 3);
+
+    // Core
+    trailLayer.fill(h, s * 0.2, Math.min(b + 20, 100), alpha * this.trailAlpha);
+    trailLayer.ellipse(this.x, this.y, sz, sz);
+  }
+}
+
+// === Setup ===
+function setup() {
+  createCanvas(1920, 1080);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+  colorMode(HSB, 360, 100, 100, 100);
+
+  // Background layer — rendered once
+  bgLayer = createGraphics(1920, 1080);
+  bgLayer.colorMode(HSB, 360, 100, 100, 100);
+  bgLayer.noStroke();
+  // Gradient background
+  for (let y = 0; y < 1080; y++) {
+    let t = y / 1080;
+    let h = lerp(PALETTE.bgTop[0], PALETTE.bgBot[0], t);
+    let s = lerp(PALETTE.bgTop[1], PALETTE.bgBot[1], t);
+    let b = lerp(PALETTE.bgTop[2], PALETTE.bgBot[2], t);
+    // Add noise texture
+    let nv = noise(y * 0.01, 0.5) * 1.5;
+    bgLayer.fill(h + nv, s, Math.max(b - nv * 0.5, 0));
+    bgLayer.rect(0, y, 1920, 1);
+  }
+
+  // Trail layer
+  trailLayer = createGraphics(1920, 1080);
+  trailLayer.colorMode(HSB, 360, 100, 100, 100);
+
+  // Spawn particles
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new Firefly());
+  }
+}
+
+// === Draw ===
+function draw() {
+  // Fade trails
+  trailLayer.blendMode(REMOVE);
+  trailLayer.noStroke();
+  trailLayer.fill(0, 0, CONFIG.trailFade);
+  trailLayer.rect(0, 0, 1920, 1080);
+  trailLayer.blendMode(BLEND);
+
+  // Update & draw particles
+  for (let p of particles) {
+    p.update();
+    p.display();
+  }
+
+  // Composite
+  image(bgLayer, 0, 0);
+  image(trailLayer, 0, 0);
+
+  // Vignette
+  drawVignette();
+
+  // Advance noise field
+  zOff += 0.001;
+}
+
+function drawVignette() {
+  let ctx = drawingContext;
+  let cx = 960, cy = 540;
+  let maxR = Math.sqrt(cx * cx + cy * cy);
+  let grad = ctx.createRadialGradient(cx, cy, maxR * 0.25, cx, cy, maxR);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.5, 'rgba(4,6,16,0.15)');
+  grad.addColorStop(1, 'rgba(4,6,16,0.85)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1920, 1080);
+}
+
+// === Events ===
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('nocturne', 'png');
+  if (key === 'g' || key === 'G') saveGif('nocturne', 5);
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = Math.floor(Math.random() * 99999);
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    particles = [];
+    trailLayer.clear();
+    for (let i = 0; i < CONFIG.particleCount; i++) {
+      particles.push(new Firefly());
+    }
+  }
+}
+
+function windowResized() {
+  // Keep fixed 1920x1080
+}
+</script>
+</body>
+</html>

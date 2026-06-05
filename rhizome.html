@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rhizome</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #060610; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// Rhizome — organic flowing network
+// Particles trace paths through a domain-warped noise field
+// leaving luminous trails that breathe and pulse
+
+const CONFIG = {
+  seed: 47,
+  particleCount: 120,
+  noiseScale: 0.003,
+  noiseSpeed: 0.0004,
+  trailAlpha: 12,
+  particleSpeed: 1.2,
+  warpStrength: 0.6,
+  branchChance: 0.002,
+  maxBranches: 200,
+  breatheSpeed: 0.0008,
+};
+
+const PALETTE = {
+  bg: [6, 6, 16],
+  amber: [232, 195, 110],
+  teal: [70, 190, 180],
+  rose: [200, 120, 140],
+  cream: [240, 230, 210],
+};
+
+let particles = [];
+let trailLayer;
+let frameNum = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  trailLayer = createGraphics(width, height);
+  trailLayer.background(...PALETTE.bg);
+  trailLayer.pixelDensity(1);
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new RhizomeParticle());
+  }
+}
+
+function draw() {
+  frameNum++;
+  let t = frameCount * CONFIG.noiseSpeed;
+  let breathe = Math.sin(frameCount * CONFIG.breatheSpeed) * 0.3 + 0.7;
+
+  // Fade trails slightly
+  trailLayer.noStroke();
+  trailLayer.fill(...PALETTE.bg, CONFIG.trailAlpha);
+  trailLayer.rect(0, 0, width, height);
+
+  // Update and draw particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.update(t, breathe);
+    p.display(trailLayer);
+
+    if (p.isDead()) {
+      particles.splice(i, 1);
+    }
+
+    // Branching
+    if (particles.length < CONFIG.maxBranches && Math.random() < CONFIG.branchChance && p.age > 30) {
+      particles.push(p.branch());
+    }
+  }
+
+  // Maintain minimum population
+  while (particles.length < CONFIG.particleCount * 0.6) {
+    particles.push(new RhizomeParticle());
+  }
+
+  // Compose final image
+  background(...PALETTE.bg);
+  image(trailLayer, 0, 0);
+
+  // Draw bright heads of particles
+  for (let p of particles) {
+    let c = p.getColor(breathe);
+    let alpha = Math.min(255, p.age * 8);
+    noStroke();
+    fill(c[0], c[1], c[2], alpha);
+    let s = p.size * (0.6 + breathe * 0.4);
+    ellipse(p.x, p.y, s, s);
+  }
+}
+
+// Domain-warped noise field
+function flowAngle(x, y, t) {
+  let warp1x = noise(x * CONFIG.noiseScale, y * CONFIG.noiseScale, t) * CONFIG.warpStrength;
+  let warp1y = noise(x * CONFIG.noiseScale + 100, y * CONFIG.noiseScale + 100, t) * CONFIG.warpStrength;
+  let nx = x * CONFIG.noiseScale + warp1x;
+  let ny = y * CONFIG.noiseScale + warp1y;
+  let warp2x = noise(nx + 200, ny + 200, t * 0.7) * CONFIG.warpStrength * 0.5;
+  let warp2y = noise(nx + 300, ny + 300, t * 0.7) * CONFIG.warpStrength * 0.5;
+  let angle = noise(nx + warp2x, ny + warp2y, t * 1.3) * Math.PI * 4;
+  return angle;
+}
+
+class RhizomeParticle {
+  constructor(x, y, inheritedHue) {
+    if (x !== undefined) {
+      this.x = x;
+      this.y = y;
+      this.hueOffset = inheritedHue !== undefined ? inheritedHue : Math.random() * 60 - 30;
+    } else {
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+      this.hueOffset = Math.random() * 60 - 30;
+    }
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.age = 0;
+    this.maxAge = 300 + Math.random() * 400;
+    this.size = 2.5 + Math.random() * 2;
+    this.speedMult = 0.7 + Math.random() * 0.6;
+    this.hueBase = Math.random() < 0.5 ? 35 : 175; // amber or teal
+    this.isBranch = (x !== undefined);
+  }
+
+  update(t, breathe) {
+    this.prevX = this.x;
+    this.prevY = this.y;
+    let angle = flowAngle(this.x, this.y, t);
+    let speed = CONFIG.particleSpeed * this.speedMult * breathe;
+    this.x += Math.cos(angle) * speed;
+    this.y += Math.sin(angle) * speed;
+    this.age++;
+  }
+
+  display(g) {
+    let c = this.getColor(1);
+    let alpha = Math.min(200, this.age * 6);
+    let sw = this.size * 0.5 * (1 - this.age / this.maxAge);
+    g.stroke(c[0], c[1], c[2], alpha);
+    g.strokeWeight(Math.max(0.3, sw));
+    g.line(this.prevX, this.prevY, this.x, this.y);
+  }
+
+  getColor(breathe) {
+    let hue = this.hueBase + this.hueOffset + Math.sin(this.age * 0.02) * 15;
+    // Manual HSB-like mapping for our palette
+    let mix = (Math.sin(hue * 0.05) + 1) * 0.5;
+    let r, g, b;
+    if (this.hueBase < 100) {
+      // Amber family
+      r = PALETTE.amber[0] * mix + PALETTE.cream[0] * (1 - mix);
+      g = PALETTE.amber[1] * mix + PALETTE.cream[1] * (1 - mix);
+      b = PALETTE.amber[2] * mix + PALETTE.rose[2] * (1 - mix);
+    } else {
+      // Teal family
+      r = PALETTE.teal[0] * mix + PALETTE.cream[0] * (1 - mix);
+      g = PALETTE.teal[1] * mix + PALETTE.rose[1] * (1 - mix);
+      b = PALETTE.teal[2] * mix + PALETTE.cream[2] * (1 - mix);
+    }
+    return [r, g, b];
+  }
+
+  branch() {
+    let offsetX = (Math.random() - 0.5) * 20;
+    let offsetY = (Math.random() - 0.5) * 20;
+    return new RhizomeParticle(this.x + offsetX, this.y + offsetY, this.hueOffset + (Math.random() - 0.5) * 10);
+  }
+
+  isDead() {
+    return this.age > this.maxAge ||
+      this.x < -50 || this.x > width + 50 ||
+      this.y < -50 || this.y > height + 50;
+  }
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('rhizome', 'png');
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = Math.floor(Math.random() * 99999);
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    trailLayer.background(...PALETTE.bg);
+    particles = [];
+    for (let i = 0; i < CONFIG.particleCount; i++) {
+      particles.push(new RhizomeParticle());
+    }
+  }
+  if (key === ' ') {
+    if (isLooping()) noLoop(); else loop();
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  let oldTrail = trailLayer;
+  trailLayer = createGraphics(width, height);
+  trailLayer.pixelDensity(1);
+  trailLayer.background(...PALETTE.bg);
+  // Don't lose old trails — blend them scaled
+  trailLayer.image(oldTrail, 0, 0, width, height);
+}
+</script>
+</body>
+</html>

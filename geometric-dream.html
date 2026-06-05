@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZOE ✶ Geometric Dream</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+  }
+
+  .title-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 3.5rem;
+    font-weight: 100;
+    letter-spacing: 1.2em;
+    color: rgba(180, 200, 255, 0.12);
+    pointer-events: none;
+    z-index: 10;
+    text-align: center;
+    padding-left: 1.2em; /* compensate letter-spacing */
+    user-select: none;
+    text-shadow: 0 0 40px rgba(100, 160, 255, 0.08);
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="title-overlay">ZOE ✶</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let W, H, cx, cy;
+  let mouse = { x: -9999, y: -9999 };
+  let time = 0;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2;
+    cy = H / 2;
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mouseleave', () => {
+    mouse.x = -9999;
+    mouse.y = -9999;
+  });
+
+  // Color palette
+  const palette = [
+    { r: 30, g: 60, b: 180 },   // deep blue
+    { r: 0, g: 140, b: 200 },    // cyan
+    { r: 0, g: 180, b: 220 },    // bright cyan
+    { r: 160, g: 30, b: 140 },   // magenta
+    { r: 200, g: 50, b: 120 },   // pink-magenta
+    { r: 180, g: 140, b: 30 },   // gold
+    { r: 220, g: 180, b: 50 },   // bright gold
+    { r: 60, g: 40, b: 160 },    // indigo
+    { r: 80, g: 100, b: 220 },   // periwinkle
+  ];
+
+  // Shape types
+  const HEXAGON = 0;
+  const CIRCLE = 1;
+  const TRIANGLE = 2;
+
+  class Shape {
+    constructor() {
+      this.reset(true);
+    }
+
+    reset(initial = false) {
+      // Position — biased toward center for mandala feel
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * Math.max(W, H) * 0.6;
+      this.x = cx + Math.cos(angle) * dist;
+      this.y = cy + Math.sin(angle) * dist;
+      this.baseX = this.x;
+      this.baseY = this.y;
+
+      this.type = Math.floor(Math.random() * 3);
+      this.baseRadius = 20 + Math.random() * 120;
+      this.rotation = Math.random() * Math.PI * 2;
+      this.rotationSpeed = (Math.random() - 0.5) * 0.004;
+      this.driftAngle = Math.random() * Math.PI * 2;
+      this.driftSpeed = 0.1 + Math.random() * 0.3;
+      this.driftRadius = 10 + Math.random() * 40;
+      this.pulseSpeed = 0.005 + Math.random() * 0.015;
+      this.pulsePhase = Math.random() * Math.PI * 2;
+      this.pulseAmp = 0.1 + Math.random() * 0.2;
+
+      this.color = palette[Math.floor(Math.random() * palette.length)];
+      this.baseOpacity = 0.04 + Math.random() * 0.18;
+      this.opacity = this.baseOpacity;
+
+      this.lineWidth = 0.5 + Math.random() * 1.5;
+      this.filled = Math.random() < 0.3;
+      this.glowAmount = Math.random() < 0.25 ? (2 + Math.random() * 6) : 0;
+
+      // Symmetry layer — some shapes are mirrored for kaleidoscope effect
+      this.mirrorCount = Math.random() < 0.4 ? (3 + Math.floor(Math.random() * 5)) : 0;
+      this.mirrorAngle = Math.random() * Math.PI * 2;
+
+      // Depth layering factor
+      this.depth = Math.random();
+    }
+  }
+
+  // Create shapes
+  const SHAPE_COUNT = 90;
+  const shapes = [];
+  for (let i = 0; i < SHAPE_COUNT; i++) {
+    shapes.push(new Shape());
+  }
+
+  // Drawing helpers
+  function drawHexagon(ctx, x, y, radius, rotation) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = rotation + (Math.PI / 3) * i;
+      const px = x + Math.cos(a) * radius;
+      const py = y + Math.sin(a) * radius;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function drawTriangle(ctx, x, y, radius, rotation) {
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = rotation + (Math.PI * 2 / 3) * i - Math.PI / 2;
+      const px = x + Math.cos(a) * radius;
+      const py = y + Math.sin(a) * radius;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  function drawCircle(ctx, x, y, radius) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+  }
+
+  function drawShape(shape, x, y, radius, rotation) {
+    const { type } = shape;
+    if (type === HEXAGON) drawHexagon(ctx, x, y, radius, rotation);
+    else if (type === CIRCLE) drawCircle(ctx, x, y, radius);
+    else drawTriangle(ctx, x, y, radius, rotation);
+  }
+
+  function renderShape(shape, overrideX, overrideY) {
+    const sx = overrideX !== undefined ? overrideX : shape.x;
+    const sy = overrideY !== undefined ? overrideY : shape.y;
+
+    // Mouse interaction
+    const dx = sx - mouse.x;
+    const dy = sy - mouse.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const interactRadius = 200;
+    let mouseFactor = 0;
+    if (dist < interactRadius) {
+      mouseFactor = 1 - dist / interactRadius;
+      mouseFactor = mouseFactor * mouseFactor; // ease-in
+    }
+
+    const pulse = 1 + Math.sin(time * shape.pulseSpeed + shape.pulsePhase) * shape.pulseAmp;
+    const mouseGrow = 1 + mouseFactor * 0.3;
+    const radius = Math.max(1, shape.baseRadius * pulse * mouseGrow);
+
+    const opacity = Math.min(0.6, shape.baseOpacity + mouseFactor * 0.25);
+    const { r, g, b } = shape.color;
+
+    ctx.save();
+
+    if (shape.glowAmount > 0) {
+      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${opacity * 0.6})`;
+      ctx.shadowBlur = shape.glowAmount + mouseFactor * 10;
+    }
+
+    if (shape.filled) {
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      drawShape(shape, sx, sy, radius, shape.rotation);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      ctx.lineWidth = shape.lineWidth + mouseFactor * 0.5;
+      drawShape(shape, sx, sy, radius, shape.rotation);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function update() {
+    time++;
+
+    for (const shape of shapes) {
+      // Drift
+      const driftX = Math.cos(time * 0.001 * shape.driftSpeed + shape.driftAngle) * shape.driftRadius;
+      const driftY = Math.sin(time * 0.001 * shape.driftSpeed + shape.driftAngle + 1.3) * shape.driftRadius;
+
+      // Slow orbit around center
+      const orbAngle = 0.0003 * shape.driftSpeed + shape.driftAngle;
+      const orbDist = Math.sqrt((shape.baseX - cx) ** 2 + (shape.baseY - cy) ** 2);
+      const orbBaseAngle = Math.atan2(shape.baseY - cy, shape.baseX - cx);
+
+      shape.x = cx + Math.cos(orbBaseAngle + time * orbAngle) * orbDist + driftX;
+      shape.y = cy + Math.sin(orbBaseAngle + time * orbAngle) * orbDist + driftY;
+
+      // Rotation
+      shape.rotation += shape.rotationSpeed;
+    }
+  }
+
+  function draw() {
+    // Clear with slight trail effect for motion blur
+    ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Sort by depth for layering
+    shapes.sort((a, b) => a.depth - b.depth);
+
+    for (const shape of shapes) {
+      renderShape(shape);
+
+      // Draw mirrored copies for kaleidoscope
+      if (shape.mirrorCount > 0) {
+        const relX = shape.x - cx;
+        const relY = shape.y - cy;
+        const angleStep = (Math.PI * 2) / shape.mirrorCount;
+
+        for (let i = 1; i < shape.mirrorCount; i++) {
+          const a = angleStep * i;
+          const cos = Math.cos(a);
+          const sin = Math.sin(a);
+          const mx = cx + relX * cos - relY * sin;
+          const my = cy + relX * sin + relY * cos;
+          renderShape(shape, mx, my);
+        }
+      }
+    }
+
+    // Subtle radial vignette
+    const vg = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.1, cx, cy, Math.max(W, H) * 0.75);
+    vg.addColorStop(0, 'rgba(10, 10, 15, 0)');
+    vg.addColorStop(1, 'rgba(10, 10, 15, 0.5)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // Initial full clear
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+
+  loop();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoPulse — Generative Geometry</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: monospace;
+  }
+  canvas {
+    display: block;
+  }
+  .info {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="info">click to regenerate · scroll to morph</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, cx, cy;
+let shapes = [];
+let morphFactor = 0;
+let hueBase = Math.random() * 360;
+let time = 0;
+let seed = Math.random() * 10000;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Seeded pseudo-random
+function srand(s) {
+  let x = Math.sin(s) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+function generate() {
+  shapes = [];
+  seed = Math.random() * 10000;
+  hueBase = Math.random() * 360;
+  const count = 8 + Math.floor(srand(seed) * 12);
+  
+  for (let i = 0; i < count; i++) {
+    const s = seed + i * 137.5;
+    shapes.push({
+      sides: 3 + Math.floor(srand(s + 1) * 6),
+      radius: 30 + srand(s + 2) * Math.min(W, H) * 0.3,
+      angle: srand(s + 3) * Math.PI * 2,
+      dist: srand(s + 4) * Math.min(W, H) * 0.35,
+      rotSpeed: (srand(s + 5) - 0.5) * 0.02,
+      orbitSpeed: (srand(s + 6) - 0.5) * 0.005,
+      hueOffset: srand(s + 7) * 120,
+      alpha: 0.15 + srand(s + 8) * 0.45,
+      lineWidth: 1 + srand(s + 9) * 2.5,
+      pulseSpeed: 0.5 + srand(s + 10) * 2,
+      pulseAmp: 0.05 + srand(s + 11) * 0.15,
+    });
+  }
+}
+generate();
+
+function drawPolygon(x, y, radius, sides, rotation) {
+  ctx.beginPath();
+  for (let i = 0; i <= sides; i++) {
+    const a = rotation + (i / sides) * Math.PI * 2;
+    const px = x + Math.cos(a) * radius;
+    const py = y + Math.sin(a) * radius;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function draw() {
+  time += 0.016;
+  
+  // Trail effect
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Center glow
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 80);
+  grad.addColorStop(0, `hsla(${hueBase + time * 20 % 360}, 70%, 60%, 0.03)`);
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  
+  shapes.forEach((s, i) => {
+    const t = time + i * 0.3;
+    const orbit = s.angle + t * s.orbitSpeed;
+    const x = cx + Math.cos(orbit) * s.dist * (1 + morphFactor * 0.3);
+    const y = cy + Math.sin(orbit) * s.dist * (1 + morphFactor * 0.3);
+    const pulse = 1 + Math.sin(t * s.pulseSpeed) * s.pulseAmp * (1 + morphFactor);
+    const r = s.radius * pulse;
+    const rot = t * s.rotSpeed * (1 + morphFactor * 2);
+    const hue = (hueBase + s.hueOffset + time * 10) % 360;
+    
+    ctx.save();
+    ctx.strokeStyle = `hsla(${hue}, 80%, 65%, ${s.alpha})`;
+    ctx.lineWidth = s.lineWidth;
+    ctx.shadowColor = `hsla(${hue}, 90%, 70%, ${s.alpha * 0.5})`;
+    ctx.shadowBlur = 15;
+    
+    // Main shape
+    drawPolygon(x, y, r, s.sides, rot);
+    ctx.stroke();
+    
+    // Inner echo
+    ctx.strokeStyle = `hsla(${(hue + 30) % 360}, 70%, 55%, ${s.alpha * 0.4})`;
+    ctx.lineWidth = s.lineWidth * 0.5;
+    drawPolygon(x, y, r * 0.5, s.sides, -rot * 1.3);
+    ctx.stroke();
+    
+    ctx.restore();
+  });
+  
+  // Connecting lines between nearby shapes
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) {
+      const si = shapes[i], sj = shapes[j];
+      const ti = time + i * 0.3, tj = time + j * 0.3;
+      const xi = cx + Math.cos(si.angle + ti * si.orbitSpeed) * si.dist;
+      const yi = cy + Math.sin(si.angle + ti * si.orbitSpeed) * si.dist;
+      const xj = cx + Math.cos(sj.angle + tj * sj.orbitSpeed) * sj.dist;
+      const yj = cy + Math.sin(sj.angle + tj * sj.orbitSpeed) * sj.dist;
+      const d = Math.hypot(xi - xj, yi - yj);
+      if (d < 200) {
+        const alpha = (1 - d / 200) * 0.08;
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(xi, yi);
+        ctx.lineTo(xj, yj);
+        ctx.stroke();
+      }
+    }
+  }
+  
+  requestAnimationFrame(draw);
+}
+
+canvas.addEventListener('click', () => {
+  ctx.fillStyle = 'rgba(10, 10, 15, 1)';
+  ctx.fillRect(0, 0, W, H);
+  generate();
+});
+
+window.addEventListener('wheel', (e) => {
+  morphFactor += e.deltaY * 0.001;
+  morphFactor = Math.max(-1, Math.min(3, morphFactor));
+});
+
+// Initial clear
+ctx.fillStyle = '#0a0a0f';
+ctx.fillRect(0, 0, W, H);
+
+draw();
+</script>
+</body>
+</html>

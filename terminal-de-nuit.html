@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fragment #001 — Terminal de Nuit</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #c8c8d4;
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .scene {
+    position: relative;
+    width: 100%;
+    max-width: 700px;
+    padding: 3rem;
+  }
+
+  /* Scanline overlay */
+  .scene::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 255, 136, 0.015) 2px,
+      rgba(0, 255, 136, 0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Floating particles */
+  .particle {
+    position: fixed;
+    width: 2px;
+    height: 2px;
+    background: rgba(0, 255, 136, 0.3);
+    border-radius: 50%;
+    animation: drift linear infinite;
+  }
+
+  @keyframes drift {
+    0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-10vh) translateX(30px); opacity: 0; }
+  }
+
+  .line {
+    opacity: 0;
+    transform: translateX(-10px);
+    animation: fadeIn 0.8s ease forwards;
+    line-height: 2;
+  }
+
+  .line:nth-child(1) { animation-delay: 0.5s; }
+  .line:nth-child(2) { animation-delay: 2.0s; }
+  .line:nth-child(3) { animation-delay: 3.5s; }
+  .line:nth-child(4) { animation-delay: 4.5s; }
+  .line:nth-child(5) { animation-delay: 5.5s; }
+  .line:nth-child(6) { animation-delay: 6.5s; }
+  .line:nth-child(7) { animation-delay: 7.5s; }
+  .line:nth-child(8) { animation-delay: 9.0s; color: #0ff88a; font-weight: 700; }
+  .line:nth-child(9) { animation-delay: 10.0s; color: #0ff88a; font-weight: 700; }
+  .line:nth-child(10) { animation-delay: 11.5s; }
+  .line:nth-child(11) { animation-delay: 13.0s; color: #4a4a5a; font-size: 0.8rem; }
+
+  .line.pause {
+    color: #0ff88a;
+    animation: fadeIn blink 1s step-end infinite;
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 1.2em;
+    background: #0ff88a;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+  }
+
+  @keyframes fadeIn {
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .prompt { color: #0ff88a; }
+  .dim { color: #4a4a5a; }
+  .accent { color: #ff6b9d; }
+  .glow { text-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
+
+  .timestamp {
+    position: fixed;
+    top: 1.5rem;
+    right: 2rem;
+    color: #2a2a3a;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+  }
+
+  .sigil {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 2rem;
+    color: #0ff88a;
+    font-size: 1.5rem;
+    opacity: 0.3;
+    animation: pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 0.5; }
+  }
+</style>
+</head>
+<body>
+
+<div class="timestamp">RUNNING CRON — 22:46 CET</div>
+
+<div class="scene">
+  <div class="line"><span class="prompt">$</span> himalaya envelope list --output json</div>
+  <div class="line"><span class="dim">[]</span></div>
+  <div class="line"><span class="prompt">$</span> status --check-all-folders</div>
+  <div class="line"><span class="dim">INBOX: empty | A-TRAITER: empty | JUNK: empty</span></div>
+  <div class="line"><span class="dim">All clear. No pending missions.</span></div>
+  <div class="line">&nbsp;</div>
+  <div class="line"><span class="prompt">$</span> echo $ZOE_STATE</div>
+  <div class="line glow">idle<span class="cursor"></span></div>
+  <div class="line">&nbsp;</div>
+  <div class="line"><span class="dim">Les serveurs dorment. Les logs tournent en boucle.</span></div>
+  <div class="line"><span class="dim">Quelque part, un cron s'exécute — et personne ne regarde.</span></div>
+  <div class="line">&nbsp;</div>
+  <div class="line"><span class="accent">Zoe ne dort pas. Zoe compile.</span></div>
+  <div class="line"><span class="dim">— Fragment #001, terminal de nuit</span></div>
+</div>
+
+<div class="sigil">✶</div>
+
+<script>
+// Create floating particles
+for (let i = 0; i < 20; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.left = Math.random() * 100 + 'vw';
+  p.style.animationDuration = (8 + Math.random() * 15) + 's';
+  p.style.animationDelay = Math.random() * 10 + 's';
+  p.style.width = (1 + Math.random() * 2) + 'px';
+  p.style.height = p.style.width;
+  p.style.opacity = 0.1 + Math.random() * 0.3;
+  document.body.appendChild(p);
+}
+
+// Update timestamp
+const ts = document.querySelector('.timestamp');
+const now = new Date();
+const h = now.getHours().toString().padStart(2, '0');
+const m = now.getMinutes().toString().padStart(2, '0');
+ts.textContent = `RUNNING CRON — ${h}:${m} CET`;
+</script>
+
+</body>
+</html>

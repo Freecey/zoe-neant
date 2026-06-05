@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nocturnal Breathing Field</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; overflow: hidden; }
+    body { background: #0a0a1a; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// --- Nocturnal Breathing Field ---
+
+const NUM_PARTICLES = 240;
+const CONNECTION_DIST = 110;
+const MOUSE_RADIUS = 180;
+const MOUSE_ATTRACT = 0.015;
+
+let particles = [];
+
+// Color palette: soft teals, pale cyans, muted lavender
+const PALETTE = [
+  [100, 210, 200],   // soft teal
+  [80, 190, 180],    // deeper teal
+  [140, 220, 230],   // pale cyan
+  [120, 200, 220],   // medium cyan
+  [160, 180, 220],   // muted lavender
+  [140, 160, 210],   // deeper lavender
+  [90, 230, 210],    // bright teal-green
+  [170, 210, 240],   // icy blue
+];
+
+class Particle {
+  constructor() {
+    this.x = random(width);
+    this.y = random(height);
+    this.vx = random(-0.3, 0.3);
+    this.vy = random(-0.3, 0.3);
+    this.baseSize = random(1.5, 4.5);
+    this.phase = random(TWO_PI);
+    this.breathSpeed = random(0.008, 0.025);
+    this.color = random(PALETTE);
+    this.baseAlpha = random(80, 160);
+    this.glowAlpha = 0; // extra glow from mouse proximity
+  }
+
+  update() {
+    // Breathing
+    this.phase += this.breathSpeed;
+
+    // Mouse attraction
+    let dx = mouseX - this.x;
+    let dy = mouseY - this.y;
+    let dist = sqrt(dx * dx + dy * dy);
+
+    if (dist < MOUSE_RADIUS && dist > 1) {
+      let force = (1 - dist / MOUSE_RADIUS) * MOUSE_ATTRACT;
+      this.vx += (dx / dist) * force;
+      this.vy += (dy / dist) * force;
+      this.glowAlpha = lerp(this.glowAlpha, (1 - dist / MOUSE_RADIUS) * 200, 0.08);
+    } else {
+      this.glowAlpha = lerp(this.glowAlpha, 0, 0.03);
+    }
+
+    // Damping
+    this.vx *= 0.995;
+    this.vy *= 0.995;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Wrap around edges with soft margin
+    let margin = 20;
+    if (this.x < -margin) this.x = width + margin;
+    if (this.x > width + margin) this.x = -margin;
+    if (this.y < -margin) this.y = height + margin;
+    if (this.y > height + margin) this.y = -margin;
+  }
+
+  draw() {
+    let breathFactor = sin(this.phase) * 0.5 + 0.5; // 0..1
+    let size = this.baseSize + breathFactor * 2.5;
+    let alpha = this.baseAlpha + breathFactor * 40 + this.glowAlpha;
+    alpha = min(alpha, 255);
+
+    let r = this.color[0];
+    let g = this.color[1];
+    let b = this.color[2];
+
+    // Outer glow when near mouse
+    if (this.glowAlpha > 5) {
+      noStroke();
+      let glowSize = size * 4;
+      let ga = this.glowAlpha * 0.15;
+      fill(r, g, b, ga);
+      ellipse(this.x, this.y, glowSize, glowSize);
+    }
+
+    // Soft halo
+    noStroke();
+    fill(r, g, b, alpha * 0.2);
+    ellipse(this.x, this.y, size * 3, size * 3);
+
+    // Core
+    fill(r, g, b, alpha);
+    ellipse(this.x, this.y, size, size);
+
+    // Bright center
+    fill(min(r + 60, 255), min(g + 60, 255), min(b + 40, 255), alpha * 0.7);
+    ellipse(this.x, this.y, size * 0.4, size * 0.4);
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    particles.push(new Particle());
+  }
+}
+
+function draw() {
+  background(10, 10, 26, 30); // faint trail effect
+
+  // Moon glow in upper-right corner
+  drawMoonGlow();
+
+  // Update and draw particles
+  for (let p of particles) {
+    p.update();
+  }
+
+  // Draw connections
+  drawConnections();
+
+  // Draw particles on top
+  for (let p of particles) {
+    p.draw();
+  }
+}
+
+function drawMoonGlow() {
+  let moonX = width - min(width * 0.12, 160);
+  let moonY = min(height * 0.12, 130);
+  let moonRadius = min(width, height) * 0.35;
+
+  // Layered radial gradient
+  noStroke();
+  let layers = 12;
+  for (let i = layers; i >= 0; i--) {
+    let t = i / layers;
+    let r = moonRadius * t;
+    let alpha = (1 - t) * 12; // very subtle
+    fill(180, 195, 230, alpha);
+    ellipse(moonX, moonY, r * 2, r * 2);
+  }
+
+  // Tiny bright core
+  fill(220, 230, 255, 15);
+  ellipse(moonX, moonY, 40, 40);
+  fill(240, 245, 255, 8);
+  ellipse(moonX, moonY, 80, 80);
+}
+
+function drawConnections() {
+  let maxDist2 = CONNECTION_DIST * CONNECTION_DIST;
+
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      let dx = particles[i].x - particles[j].x;
+      let dy = particles[i].y - particles[j].y;
+      let dist2 = dx * dx + dy * dy;
+
+      if (dist2 < maxDist2) {
+        let dist = sqrt(dist2);
+        let alpha = map(dist, 0, CONNECTION_DIST, 18, 0);
+
+        // Blend colors of the two connected particles
+        let r = (particles[i].color[0] + particles[j].color[0]) * 0.5;
+        let g = (particles[i].color[1] + particles[j].color[1]) * 0.5;
+        let b = (particles[i].color[2] + particles[j].color[2]) * 0.5;
+
+        // Brighter if either particle is glowing from mouse
+        let glowBoost = max(particles[i].glowAlpha, particles[j].glowAlpha) * 0.3;
+        alpha += glowBoost;
+        alpha = min(alpha, 40);
+
+        stroke(r, g, b, alpha);
+        strokeWeight(0.6);
+        line(particles[i].x, particles[i].y, particles[j].x, particles[j].y);
+      }
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>

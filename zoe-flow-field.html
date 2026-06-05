@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Flow Field</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; overflow: hidden; cursor: crosshair; }
+  canvas { display: block; }
+  #info {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.25); font-family: 'Courier New', monospace;
+    font-size: 12px; letter-spacing: 2px; pointer-events: none;
+    transition: opacity 3s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">zoe ✶ — move your mouse</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Simplex-like noise (simple hash-based)
+const permutation = new Uint8Array(512);
+const p = new Uint8Array(256);
+for (let i = 0; i < 256; i++) p[i] = i;
+for (let i = 255; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1));
+  [p[i], p[j]] = [p[j], p[i]];
+}
+for (let i = 0; i < 512; i++) permutation[i] = p[i & 255];
+
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function lerp(a, b, t) { return a + t * (b - a); }
+function grad(hash, x, y) {
+  const h = hash & 3;
+  const u = h < 2 ? x : y;
+  const v = h < 2 ? y : x;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+function noise2D(x, y) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  x -= Math.floor(x); y -= Math.floor(y);
+  const u = fade(x), v = fade(y);
+  const a = permutation[X] + Y, b = permutation[X + 1] + Y;
+  return lerp(
+    lerp(grad(permutation[a], x, y), grad(permutation[b], x - 1, y), u),
+    lerp(grad(permutation[a + 1], x, y - 1), grad(permutation[b + 1], x - 1, y - 1), u),
+    v
+  );
+}
+
+// Particles
+const PARTICLE_COUNT = 2000;
+const particles = [];
+let mouseX = W / 2, mouseY = H / 2;
+let mouseInfluence = 0;
+
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+  mouseInfluence = 1;
+  document.getElementById('info').style.opacity = '0';
+});
+
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.speed = 0.5 + Math.random() * 1.5;
+    this.life = 200 + Math.random() * 400;
+    this.maxLife = this.life;
+    this.hue = 0;
+  }
+  update(time) {
+    const scale = 0.003;
+    const angle = noise2D(this.x * scale, this.y * scale + time * 0.0003) * Math.PI * 4;
+
+    // Mouse attraction
+    const dx = mouseX - this.x, dy = mouseY - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const influence = mouseInfluence * Math.max(0, 1 - dist / 300);
+
+    this.x += (Math.cos(angle) * this.speed) + (dx / dist * influence * 2 || 0);
+    this.y += (Math.sin(angle) * this.speed) + (dy / dist * influence * 2 || 0);
+
+    this.hue = (220 + noise2D(this.x * 0.005, this.y * 0.005) * 60) % 360;
+    this.life--;
+
+    if (this.life <= 0 || this.x < -10 || this.x > W + 10 || this.y < -10 || this.y > H + 10) {
+      this.reset();
+    }
+  }
+  draw() {
+    const alpha = Math.min(1, this.life / this.maxLife) * Math.min(1, (this.maxLife - this.life) / 30) * 0.6;
+    ctx.fillStyle = `hsla(${this.hue}, 80%, 65%, ${alpha})`;
+    ctx.fillRect(this.x, this.y, 1.5, 1.5);
+  }
+}
+
+for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(new Particle());
+
+let time = 0;
+function animate() {
+  // Slow fade for trail effect
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.03)';
+  ctx.fillRect(0, 0, W, H);
+
+  mouseInfluence *= 0.98;
+
+  for (const p of particles) {
+    p.update(time);
+    p.draw();
+  }
+  time++;
+  requestAnimationFrame(animate);
+}
+
+// Initial fill
+ctx.fillStyle = '#0a0a0f';
+ctx.fillRect(0, 0, W, H);
+animate();
+</script>
+</body>
+</html>

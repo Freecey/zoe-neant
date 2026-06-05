@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Living Noise</title>
+<style>
+  * { margin: 0; padding: 0; }
+  body { background: #0a0a0f; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Living Noise — a breathing, flowing particle field
+// Pure canvas, no dependencies. Just math and feeling.
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Simplex-like noise via sine combinations (fast, good enough)
+function noise(x, y, t) {
+  return (
+    Math.sin(x * 0.8 + t * 0.3) * Math.cos(y * 0.6 - t * 0.2) +
+    Math.sin(x * 0.3 - y * 0.5 + t * 0.5) * 0.7 +
+    Math.cos(x * 0.15 + y * 0.4 - t * 0.15) * 0.5
+  ) / 2.2;
+}
+
+// Color palette — deep ocean meets nebula
+const palette = [
+  [10, 20, 40],      // deep space
+  [20, 60, 120],     // ocean blue
+  [80, 20, 100],     // deep purple
+  [10, 80, 80],      // teal
+  [120, 40, 80],     // magenta dusk
+  [5, 40, 60],       // dark cyan
+];
+
+function getColor(n) {
+  // Map noise value to palette with smooth interpolation
+  const idx = (n + 1) * 0.5 * (palette.length - 1);
+  const i = Math.floor(idx);
+  const f = idx - i;
+  const c1 = palette[Math.min(i, palette.length - 1)];
+  const c2 = palette[Math.min(i + 1, palette.length - 1)];
+  return [
+    c1[0] + (c2[0] - c1[0]) * f,
+    c1[1] + (c2[1] - c1[1]) * f,
+    c1[2] + (c2[2] - c1[2]) * f,
+  ];
+}
+
+// Particle system
+const PARTICLE_COUNT = 1800;
+const particles = [];
+
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  particles.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    size: Math.random() * 2.5 + 0.5,
+    life: Math.random(),
+    speed: Math.random() * 0.4 + 0.1,
+    offset: Math.random() * Math.PI * 2,
+  });
+}
+
+let time = 0;
+let mouseX = W / 2, mouseY = H / 2;
+
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+document.addEventListener('touchmove', e => {
+  mouseX = e.touches[0].clientX;
+  mouseY = e.touches[0].clientY;
+});
+
+function frame() {
+  time += 0.008;
+
+  // Fade trail — gives that ghostly motion blur
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.08)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw a soft glow at cursor position
+  const grd = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 200);
+  grd.addColorStop(0, 'rgba(30, 60, 120, 0.03)');
+  grd.addColorStop(1, 'rgba(10, 10, 15, 0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  for (const p of particles) {
+    // Noise-based flow field
+    const nx = p.x / 300;
+    const ny = p.y / 300;
+    const angle = noise(nx, ny, time + p.offset) * Math.PI * 4;
+
+    // Subtle attraction to cursor
+    const dx = mouseX - p.x;
+    const dy = mouseY - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+    const pull = Math.min(0.3, 50 / dist);
+
+    p.x += Math.cos(angle) * p.speed + dx / dist * pull * 0.15;
+    p.y += Math.sin(angle) * p.speed + dy / dist * pull * 0.15;
+
+    // Wrap around edges
+    if (p.x < -10) p.x = W + 10;
+    if (p.x > W + 10) p.x = -10;
+    if (p.y < -10) p.y = H + 10;
+    if (p.y > H + 10) p.y = -10;
+
+    // Color from noise
+    const cn = noise(p.x / 400, p.y / 400, time * 0.5 + p.offset);
+    const [r, g, b] = getColor(cn);
+
+    // Breathing alpha — particles fade in and out
+    const alpha = 0.3 + 0.5 * Math.sin(time * 2 + p.life * Math.PI * 2) ** 2;
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r|0}, ${g|0}, ${b|0}, ${alpha.toFixed(2)})`;
+    ctx.fill();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+frame();
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Breathing Attractor</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #050508; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Configuration ===
+const CONFIG = {
+  seed: 42,
+  particleCount: 600,
+  trailFade: 6,
+  attractorSpeed: 0.00015,
+  noiseScale: 0.003,
+};
+
+// === Palette: deep ocean meets ember ===
+const PALETTE = {
+  bg: [5, 5, 8],
+  colors: [
+    [320, 70, 85],   // rose
+    [200, 60, 75],   // steel blue
+    [35, 80, 90],    // amber
+    [170, 50, 70],   // teal
+    [280, 45, 65],   // muted violet
+    [15, 90, 85],    // warm orange
+  ]
+};
+
+// === State ===
+let particles = [];
+let trailBuf;
+let t = 0;
+let bloomBuf;
+
+// === Attractor parameters (breathing) ===
+function getAttractorParams(time) {
+  // Slowly evolving Clifford attractor
+  let a = -1.4 + 0.3 * Math.sin(time * 0.7);
+  let b = 1.6 + 0.2 * Math.cos(time * 0.5);
+  let c = 1.0 + 0.4 * Math.sin(time * 0.3 + 2.0);
+  let d = 0.7 + 0.3 * Math.cos(time * 0.4 + 1.0);
+  return { a, b, c, d };
+}
+
+// === Particle ===
+class AttractorParticle {
+  constructor() {
+    this.x = Math.random() * 2 - 1;
+    this.y = Math.random() * 2 - 1;
+    this.colorIdx = Math.floor(Math.random() * PALETTE.colors.length);
+    this.speed = 0.6 + Math.random() * 0.4;
+    this.alpha = 80 + Math.random() * 70;
+    this.size = 0.4 + Math.random() * 0.8;
+    // Small noise offset for uniqueness
+    this.nox = Math.random() * 100;
+    this.noy = Math.random() * 100;
+  }
+
+  update(params, time) {
+    // Clifford attractor step
+    let nx = Math.sin(params.a * this.y) + params.c * Math.cos(params.a * this.x);
+    let ny = Math.sin(params.b * this.x) + params.d * Math.cos(params.b * this.y);
+    
+    // Add tiny noise perturbation for organic breathing
+    let pertX = (noise(this.nox + time * 0.2, this.noy) - 0.5) * 0.08;
+    let pertY = (noise(this.nox, this.noy + time * 0.2) - 0.5) * 0.08;
+    
+    this.x = nx + pertX;
+    this.y = ny + pertY;
+  }
+
+  display(buffer) {
+    // Map attractor space to canvas
+    let px = map(this.x, -3, 3, 0, width);
+    let py = map(this.y, -3, 3, 0, height);
+    
+    let c = PALETTE.colors[this.colorIdx];
+    buffer.noStroke();
+    buffer.fill(c[0], c[1], c[2], this.alpha);
+    buffer.ellipse(px, py, this.size, this.size);
+  }
+}
+
+// === Setup ===
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  colorMode(HSB, 360, 100, 100, 100);
+  
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+  
+  trailBuf = createGraphics(width, height);
+  trailBuf.colorMode(HSB, 360, 100, 100, 100);
+  trailBuf.pixelDensity(1);
+  trailBuf.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  
+  bloomBuf = createGraphics(Math.floor(width / 4), Math.floor(height / 4));
+  bloomBuf.pixelDensity(1);
+  
+  // Initialize particles with scattered positions
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new AttractorParticle());
+  }
+}
+
+// === Draw ===
+function draw() {
+  t += CONFIG.attractorSpeed;
+  let params = getAttractorParams(t);
+  
+  // Fade trails
+  trailBuf.noStroke();
+  trailBuf.fill(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], CONFIG.trailFade);
+  trailBuf.rect(0, 0, width, height);
+  
+  // Update and draw particles
+  for (let p of particles) {
+    p.update(params, t);
+    p.display(trailBuf);
+  }
+  
+  // === Composite ===
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  
+  // Base trails
+  image(trailBuf, 0, 0);
+  
+  // Bloom pass
+  if (frameCount % 2 === 0) {
+    bloomBuf.clear();
+    bloomBuf.image(trailBuf, 0, 0, bloomBuf.width, bloomBuf.height);
+    bloomBuf.filter(BLUR, 4);
+  }
+  
+  blendMode(ADD);
+  tint(255, 45);
+  image(bloomBuf, 0, 0, width, height);
+  noTint();
+  blendMode(BLEND);
+  
+  // Subtle vignette overlay
+  drawVignette();
+}
+
+function drawVignette() {
+  noFill();
+  for (let i = 0; i < 40; i++) {
+    let alpha = map(i, 0, 40, 0, 30);
+    stroke(0, 0, 0, alpha);
+    strokeWeight(width * 0.04);
+    let offset = i * width * 0.02;
+    rect(-offset, -offset, width + offset * 2, height + offset * 2, 100);
+  }
+}
+
+// === Events ===
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  let newTrail = createGraphics(width, height);
+  newTrail.colorMode(HSB, 360, 100, 100, 100);
+  newTrail.pixelDensity(1);
+  newTrail.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  trailBuf = newTrail;
+  
+  bloomBuf = createGraphics(Math.floor(width / 4), Math.floor(height / 4));
+  bloomBuf.pixelDensity(1);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('breathing-attractor', 'png');
+  if (key === 'r' || key === 'R') {
+    randomSeed(Math.floor(millis()));
+    noiseSeed(Math.floor(millis()));
+  }
+}
+</script>
+</body>
+</html>

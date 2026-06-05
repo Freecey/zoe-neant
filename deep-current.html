@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deep Current — Zoe ✶</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #030308; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Deep Current — generative flow field with luminous trails ===
+// Zoe ✶ — 3AM session, May 2026
+
+const CONFIG = {
+  seed: 7318,
+  particleCount: 1800,
+  noiseScale: 0.003,
+  noiseSpeed: 0.0004,
+  trailAlpha: 8,
+  baseSpeed: 1.2,
+  curlStrength: 2.0,
+  warpOctaves: 3,
+};
+
+// Palette: deep ocean meets northern lights
+const PALETTE = {
+  bg: [240, 240, 248],         // HSB — very dark blue-black
+  colors: [
+    [168, 70, 85],   // teal
+    [195, 60, 75],   // cyan
+    [280, 50, 65],   // muted violet
+    [140, 55, 70],   // sea green
+    [210, 40, 90],   // pale ice blue
+    [320, 35, 60],   // dusty rose
+    [50, 45, 80],    // warm sand accent
+  ]
+};
+
+let particles = [];
+let pg; // trail layer
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  colorMode(HSB, 360, 100, 100, 100);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  pg = createGraphics(width, height);
+  pg.colorMode(HSB, 360, 100, 100, 100);
+  pg.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  pg.noStroke();
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new FlowParticle());
+  }
+}
+
+function draw() {
+  // Fade the trail layer
+  pg.blendMode(BLEND);
+  pg.fill(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], CONFIG.trailAlpha);
+  pg.rect(0, 0, width, height);
+
+  let t = frameCount * CONFIG.noiseSpeed;
+
+  for (let p of particles) {
+    p.update(t);
+    p.display(pg);
+  }
+
+  // Composite
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  image(pg, 0, 0);
+
+  // Subtle vignette overlay
+  drawVignette();
+}
+
+function drawVignette() {
+  noFill();
+  for (let i = 0; i < 40; i++) {
+    let alpha = map(i, 0, 40, 0, 40);
+    stroke(240, 240, 248 - i * 2, alpha);
+    strokeWeight(width * 0.04);
+    let inset = i * width * 0.012;
+    rect(inset, inset, width - inset * 2, height - inset * 2, 20);
+  }
+}
+
+// Domain-warped curl noise for organic flow
+function warpedNoise(x, y, t) {
+  let nx = x * CONFIG.noiseScale;
+  let ny = y * CONFIG.noiseScale;
+
+  // First warp layer
+  let qx = fbm(nx, ny, CONFIG.warpOctaves, t);
+  let qy = fbm(nx + 5.2, ny + 1.3, CONFIG.warpOctaves, t);
+
+  // Second warp layer — deeper distortion
+  let rx = fbm(nx + 4.0 * qx + 1.7, ny + 4.0 * qy + 9.2, CONFIG.warpOctaves, t);
+  let ry = fbm(nx + 4.0 * qx + 8.3, ny + 4.0 * qy + 2.8, CONFIG.warpOctaves, t);
+
+  return fbm(nx + 4.0 * rx, ny + 4.0 * ry, CONFIG.warpOctaves, t);
+}
+
+function fbm(x, y, octaves, t) {
+  let val = 0, amp = 1, freq = 1, sum = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += noise(x * freq + t, y * freq - t * 0.7) * amp;
+    sum += amp;
+    amp *= 0.5;
+    freq *= 2.1;
+  }
+  return val / sum;
+}
+
+class FlowParticle {
+  constructor() {
+    this.reset(true);
+  }
+
+  reset(initial) {
+    this.x = Math.random() * width;
+    this.y = Math.random() * height;
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.speed = CONFIG.baseSpeed * (0.4 + Math.random() * 0.8);
+    this.life = 300 + Math.random() * 500;
+    this.maxLife = this.life;
+    this.age = initial ? Math.random() * this.life : 0;
+
+    // Pick a palette color with slight variation
+    let c = PALETTE.colors[floor(Math.random() * PALETTE.colors.length)];
+    this.hue = c[0] + (Math.random() - 0.5) * 20;
+    this.sat = c[1] + (Math.random() - 0.5) * 15;
+    this.bri = c[2] + (Math.random() - 0.5) * 10;
+    this.weight = 0.5 + Math.random() * 1.8;
+  }
+
+  update(t) {
+    this.prevX = this.x;
+    this.prevY = this.y;
+
+    let n = warpedNoise(this.x, this.y, t);
+    let angle = n * TWO_PI * CONFIG.curlStrength;
+
+    // Secondary influence — slower, broader
+    let n2 = fbm(this.x * CONFIG.noiseScale * 0.4, this.y * CONFIG.noiseScale * 0.4, 2, t * 0.5);
+    angle += n2 * PI * 0.5;
+
+    this.x += Math.cos(angle) * this.speed;
+    this.y += Math.sin(angle) * this.speed;
+    this.age++;
+
+    // Respawn if offscreen or expired
+    let margin = 20;
+    if (this.x < -margin || this.x > width + margin ||
+        this.y < -margin || this.y > height + margin ||
+        this.age > this.life) {
+      this.reset(false);
+    }
+  }
+
+  display(g) {
+    let lifeRatio = 1 - this.age / this.maxLife;
+    let fade = Math.sin(lifeRatio * PI); // smooth in-out
+    let alpha = fade * 55;
+
+    if (alpha < 1) return;
+
+    g.stroke(this.hue % 360, this.sat, this.bri, alpha);
+    g.strokeWeight(this.weight);
+    g.line(this.prevX, this.prevY, this.x, this.y);
+
+    // Occasional bright dot at head
+    if (fade > 0.8 && Math.random() < 0.15) {
+      g.noStroke();
+      g.fill(this.hue % 360, this.sat * 0.6, Math.min(100, this.bri + 20), alpha * 0.8);
+      g.ellipse(this.x, this.y, this.weight * 2.5);
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  let oldPg = pg;
+  pg = createGraphics(width, height);
+  pg.colorMode(HSB, 360, 100, 100, 100);
+  pg.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  pg.noStroke();
+  pg.image(oldPg, 0, 0, width, height);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('deep-current', 'png');
+  if (key === 'r' || key === 'R') {
+    randomSeed(millis());
+    noiseSeed(millis());
+    for (let p of particles) p.reset(true);
+  }
+  if (key === ' ') {
+    if (isLooping()) noLoop(); else loop();
+  }
+}
+</script>
+</body>
+</html>

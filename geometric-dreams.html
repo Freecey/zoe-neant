@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geometric Dreams ✶</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; overflow: hidden; font-family: 'Courier New', monospace; }
+canvas { display: block; }
+#ui {
+  position: fixed; bottom: 20px; left: 20px;
+  background: rgba(10,10,15,0.85);
+  border: 1px solid rgba(0,255,213,0.2);
+  border-radius: 12px; padding: 16px 20px;
+  color: #ccc; font-size: 12px;
+  backdrop-filter: blur(10px);
+  z-index: 10; min-width: 200px;
+  transition: opacity 0.3s;
+}
+#ui:hover { opacity: 1 !important; }
+#ui h3 { color: #00ffd5; font-size: 13px; margin-bottom: 10px; letter-spacing: 2px; }
+.mode-btn {
+  background: rgba(0,255,213,0.08); border: 1px solid rgba(0,255,213,0.25);
+  color: #aaa; padding: 5px 10px; margin: 2px; border-radius: 6px;
+  cursor: pointer; font-family: inherit; font-size: 11px; transition: all 0.2s;
+}
+.mode-btn:hover { background: rgba(0,255,213,0.15); color: #00ffd5; }
+.mode-btn.active { background: rgba(0,255,213,0.2); color: #00ffd5; border-color: #00ffd5; }
+.slider-row { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+.slider-row label { color: #888; min-width: 50px; }
+input[type=range] {
+  -webkit-appearance: none; width: 100px; height: 3px;
+  background: rgba(0,255,213,0.2); border-radius: 2px; outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px;
+  background: #00ffd5; border-radius: 50%; cursor: pointer;
+}
+#title {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  color: rgba(0,255,213,0.3); font-size: 14px; letter-spacing: 6px;
+  pointer-events: none; z-index: 10; text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">geometric dreams ✶</div>
+<div id="ui">
+  <h3>MODE</h3>
+  <div id="modes"></div>
+  <div class="slider-row">
+    <label>Speed</label>
+    <input type="range" id="speed" min="0.1" max="3" step="0.1" value="1">
+  </div>
+  <div class="slider-row">
+    <label>Glow</label>
+    <input type="range" id="glow" min="0" max="40" step="1" value="15">
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+let mouse = { x: 0, y: 0, active: false };
+let time = 0;
+let mode = 0;
+let speedMul = 1;
+let glowAmount = 15;
+
+const modes = ['Spirograph', 'Sacred Geometry', 'Particle Flow', 'Kaleidoscope'];
+const palettes = [
+  ['#00ffd5', '#ffd700', '#ff6b9d', '#4169e1'],
+  ['#ff6b9d', '#ff9a56', '#ffd700', '#00ffd5'],
+  ['#4169e1', '#7b68ee', '#00ffd5', '#ff6b9d'],
+];
+
+let palette = palettes[0];
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+window.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true;
+});
+window.addEventListener('mouseleave', () => { mouse.active = false; });
+
+// UI
+const modesDiv = document.getElementById('modes');
+modes.forEach((m, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'mode-btn' + (i === 0 ? ' active' : '');
+  btn.textContent = m;
+  btn.onclick = () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    mode = i;
+    time = 0;
+  };
+  modesDiv.appendChild(btn);
+});
+
+document.getElementById('speed').oninput = e => speedMul = parseFloat(e.target.value);
+document.getElementById('glow').oninput = e => glowAmount = parseInt(e.target.value);
+
+// Utils
+function hsl(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16)/255;
+  const g = parseInt(hex.slice(3,5),16)/255;
+  const b = parseInt(hex.slice(5,7),16)/255;
+  return `rgba(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)},${alpha})`;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// Particles for mode 2
+let particles = [];
+function initParticles() {
+  particles = [];
+  for (let i = 0; i < 300; i++) {
+    particles.push({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: 0, vy: 0,
+      life: Math.random() * 200,
+      maxLife: 200 + Math.random() * 200,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: 1 + Math.random() * 2
+    });
+  }
+}
+initParticles();
+
+// Spirograph
+function drawSpirograph(t) {
+  const layers = 6;
+  for (let l = 0; l < layers; l++) {
+    const R = Math.min(W, H) * 0.25 + l * 15;
+    const r = R * (0.3 + Math.sin(t * 0.2 + l) * 0.1);
+    const d = r * (0.8 + Math.cos(t * 0.15 + l * 0.5) * 0.3);
+    const col = palette[l % palette.length];
+    const mx = mouse.active ? (mouse.x - cx) * 0.05 : 0;
+    const my = mouse.active ? (mouse.y - cy) * 0.05 : 0;
+
+    ctx.beginPath();
+    ctx.strokeStyle = hsl(col, 0.6);
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = glowAmount;
+
+    for (let a = 0; a < Math.PI * 40; a += 0.02) {
+      const x = cx + mx + (R - r) * Math.cos(a) + d * Math.cos(((R - r) / r) * a + t * 0.5);
+      const y = cy + my + (R - r) * Math.sin(a) - d * Math.sin(((R - r) / r) * a + t * 0.5);
+      if (a === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Sacred Geometry
+function drawSacredGeometry(t) {
+  const numCircles = 12;
+  const baseR = Math.min(W, H) * 0.2;
+  const col = palette;
+
+  // Flower of Life
+  for (let ring = 0; ring < 3; ring++) {
+    const ringR = baseR * (0.5 + ring * 0.4);
+    const n = ring === 0 ? 1 : 6 * ring;
+    const offset = ring === 0 ? 0 : t * 0.1 * (ring % 2 === 0 ? 1 : -1);
+
+    for (let i = 0; i < n; i++) {
+      const angle = (Math.PI * 2 / n) * i + offset;
+      const ox = cx + (ring === 0 ? 0 : ringR * Math.cos(angle));
+      const oy = cy + (ring === 0 ? 0 : ringR * Math.sin(angle));
+
+      ctx.beginPath();
+      ctx.arc(ox, oy, baseR * 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = hsl(col[ring % col.length], 0.3 + Math.sin(t + i) * 0.15);
+      ctx.lineWidth = 1;
+      ctx.shadowColor = col[ring % col.length];
+      ctx.shadowBlur = glowAmount * 0.7;
+      ctx.stroke();
+    }
+  }
+
+  // Central rotating polygon
+  const sides = 6;
+  for (let s = 0; s < 3; s++) {
+    const pr = baseR * (0.3 + s * 0.15);
+    const rot = t * (0.3 + s * 0.1) * (s % 2 === 0 ? 1 : -1);
+    ctx.beginPath();
+    for (let i = 0; i <= sides; i++) {
+      const a = (Math.PI * 2 / sides) * i + rot;
+      const x = cx + pr * Math.cos(a);
+      const y = cy + pr * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = hsl(col[s % col.length], 0.6);
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = col[s % col.length];
+    ctx.shadowBlur = glowAmount;
+    ctx.stroke();
+  }
+
+  // Metatron connecting lines
+  const mp = 13;
+  for (let i = 0; i < mp; i++) {
+    const a1 = (Math.PI * 2 / mp) * i + t * 0.05;
+    const r1 = baseR * 0.6;
+    for (let j = i + 1; j < mp; j++) {
+      const a2 = (Math.PI * 2 / mp) * j + t * 0.05;
+      if (Math.random() > 0.997) continue; // subtle flicker
+      ctx.beginPath();
+      ctx.moveTo(cx + r1 * Math.cos(a1), cy + r1 * Math.sin(a1));
+      ctx.lineTo(cx + r1 * Math.cos(a2), cy + r1 * Math.sin(a2));
+      ctx.strokeStyle = hsl(col[2], 0.08);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Particle Flow
+function drawParticleFlow(t, dt) {
+  const mx = mouse.active ? mouse.x : cx;
+  const my = mouse.active ? mouse.y : cy;
+
+  particles.forEach(p => {
+    // Attract to mouse
+    const dx = mx - p.x;
+    const dy = my - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+    const force = Math.min(50 / dist, 0.5);
+
+    // Add swirl
+    const angle = Math.atan2(dy, dx) + Math.PI * 0.5;
+    p.vx += Math.cos(angle) * force * 0.3 + dx / dist * force * 0.1;
+    p.vy += Math.sin(angle) * force * 0.3 + dy / dist * force * 0.1;
+
+    // Damping
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life++;
+
+    // Wrap
+    if (p.x < 0) p.x = W;
+    if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H;
+    if (p.y > H) p.y = 0;
+
+    // Reset if old
+    if (p.life > p.maxLife) {
+      p.x = Math.random() * W;
+      p.y = Math.random() * H;
+      p.vx = 0; p.vy = 0;
+      p.life = 0;
+      p.color = palette[Math.floor(Math.random() * palette.length)];
+    }
+
+    const alpha = Math.sin((p.life / p.maxLife) * Math.PI) * 0.8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = hsl(p.color, alpha);
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = glowAmount * 0.5;
+    ctx.fill();
+  });
+
+  // Draw connections
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const d = dx * dx + dy * dy;
+      if (d < 4000) {
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = hsl(particles[i].color, 0.1 * (1 - d / 4000));
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Kaleidoscope
+function drawKaleidoscope(t) {
+  const segments = 12;
+  const angleStep = (Math.PI * 2) / segments;
+  const col = palette;
+  const mx = mouse.active ? (mouse.x - cx) / cx : 0;
+  const my = mouse.active ? (mouse.y - cy) / cy : 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let s = 0; s < segments; s++) {
+    ctx.save();
+    ctx.rotate(angleStep * s);
+    if (s % 2 === 1) ctx.scale(1, -1);
+
+    // Draw shapes in this segment
+    for (let i = 0; i < 5; i++) {
+      const r = 50 + i * 40 + Math.sin(t * 0.5 + i) * 20;
+      const x = r * (0.8 + mx * 0.3);
+      const y = r * (0.3 + my * 0.2) * Math.sin(t * 0.3 + i * 1.2);
+
+      const size = 8 + Math.sin(t + i * 0.7) * 4;
+      const rot = t * 0.5 + i;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+
+      // Draw diamond
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.lineTo(size * 0.6, 0);
+      ctx.lineTo(0, size);
+      ctx.lineTo(-size * 0.6, 0);
+      ctx.closePath();
+      ctx.fillStyle = hsl(col[i % col.length], 0.5 + Math.sin(t + i) * 0.2);
+      ctx.shadowColor = col[i % col.length];
+      ctx.shadowBlur = glowAmount;
+      ctx.fill();
+      ctx.strokeStyle = hsl(col[i % col.length], 0.8);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // Connecting arcs
+    for (let i = 0; i < 3; i++) {
+      const r = 80 + i * 60;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, angleStep * 0.8);
+      ctx.strokeStyle = hsl(col[(i + 1) % col.length], 0.2);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+  ctx.restore();
+  ctx.shadowBlur = 0;
+}
+
+// Main loop
+let lastTime = 0;
+function animate(ts) {
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  time += dt * speedMul;
+
+  // Fade trail
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  switch (mode) {
+    case 0: drawSpirograph(time); break;
+    case 1: drawSacredGeometry(time); break;
+    case 2: drawParticleFlow(time, dt); break;
+    case 3: drawKaleidoscope(time); break;
+  }
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

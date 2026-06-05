@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abyssal Bloom</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === ABYSSAL BLOOM v2 ===
+// Bioluminescent organisms in deep ocean — flowing, organic, alive
+
+const CONFIG = {
+  seed: 4217,
+  particleCount: 200,
+  trailFade: 2.5,
+  noiseScale: 0.002,
+  currentStrength: 3.0,
+  maxSpeed: 2.8,
+};
+
+const PALETTE = {
+  bgH: 220, bgS: 60, bgB: 6,
+  hues: [175, 185, 195, 205, 30, 340], // teal, cyan, blue, warm, rose
+};
+
+let trailLayer, bloomLayer;
+let organisms = [];
+let t = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  colorMode(HSB, 360, 100, 100, 100);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  trailLayer = createGraphics(width, height);
+  trailLayer.colorMode(HSB, 360, 100, 100, 100);
+  trailLayer.pixelDensity(1);
+
+  bloomLayer = createGraphics(floor(width / 4), floor(height / 4));
+  bloomLayer.colorMode(HSB, 360, 100, 100, 100);
+  bloomLayer.pixelDensity(1);
+
+  // Fill trail layer with background color initially
+  trailLayer.background(PALETTE.bgH, PALETTE.bgS, PALETTE.bgB);
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    organisms.push(new Organism());
+  }
+}
+
+function draw() {
+  t += 0.003;
+
+  // === Fade trail layer toward background ===
+  trailLayer.noStroke();
+  trailLayer.fill(PALETTE.bgH, PALETTE.bgS, PALETTE.bgB, CONFIG.trailFade);
+  trailLayer.rect(0, 0, width, height);
+
+  // === Update & draw organisms ===
+  for (let org of organisms) {
+    org.update(t);
+    org.display(trailLayer);
+  }
+
+  // === Bloom pass ===
+  bloomLayer.clear();
+  bloomLayer.image(trailLayer, 0, 0, bloomLayer.width, bloomLayer.height);
+  bloomLayer.filter(BLUR, 5);
+
+  // === Composite ===
+  // Dark background
+  background(PALETTE.bgH, PALETTE.bgS, PALETTE.bgB);
+
+  // Animated background glow
+  drawDeepGlow();
+
+  // Trail layer
+  image(trailLayer, 0, 0);
+
+  // Bloom overlay (additive)
+  blendMode(ADD);
+  tint(0, 0, 100, 35);
+  image(bloomLayer, 0, 0, width, height);
+  noTint();
+  blendMode(BLEND);
+
+  drawVignette();
+}
+
+function drawDeepGlow() {
+  let ctx = drawingContext;
+  let cx = width * 0.5 + Math.sin(t * 0.6) * width * 0.15;
+  let cy = height * 0.5 + Math.cos(t * 0.4) * height * 0.1;
+  let maxR = Math.max(width, height) * 0.7;
+  let grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+  grad.addColorStop(0, 'rgba(12, 25, 50, 0.4)');
+  grad.addColorStop(0.4, 'rgba(8, 18, 38, 0.2)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function drawVignette() {
+  let ctx = drawingContext;
+  let cx = width / 2, cy = height / 2;
+  let maxR = Math.sqrt(cx * cx + cy * cy);
+  let grad = ctx.createRadialGradient(cx, cy, maxR * 0.3, cx, cy, maxR);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.5, 'rgba(0,0,0,0.1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.8)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+}
+
+// === Domain-warped flow ===
+function getFlow(x, y, time) {
+  let s = CONFIG.noiseScale;
+
+  // Two-pass domain warp for organic distortion
+  let q0 = noise(x * s + 0.0, y * s + 0.0, time);
+  let q1 = noise(x * s + 5.2, y * s + 1.3, time);
+
+  let r0 = noise(x * s + CONFIG.currentStrength * q0 + 1.7, y * s + CONFIG.currentStrength * q1 + 9.2, time * 0.7);
+  let r1 = noise(x * s + CONFIG.currentStrength * q0 + 8.3, y * s + CONFIG.currentStrength * q1 + 2.8, time * 0.5);
+
+  // Angle from warped noise
+  let angle = noise(r0, r1, time * 0.3) * TWO_PI * 3;
+
+  // Speed variation — some areas fast, some slow
+  let speed = noise(x * s * 0.4 + 100, y * s * 0.4 + 100, time * 0.2);
+  speed = map(speed, 0, 1, 0.3, 1.2);
+
+  return {
+    x: Math.cos(angle) * speed,
+    y: Math.sin(angle) * speed
+  };
+}
+
+// === Organism ===
+class Organism {
+  constructor() {
+    this.x = random(width);
+    this.y = random(height);
+    this.vx = 0;
+    this.vy = 0;
+    this.baseSize = random(1.5, 5);
+    this.size = this.baseSize;
+    this.phase = random(TWO_PI);
+    this.speedMult = random(0.7, 1.5);
+    this.depth = random(0.4, 1.0);
+
+    // Color selection — weighted toward teals/cyans
+    let roll = random();
+    let hueIdx;
+    if (roll < 0.35) hueIdx = 0;       // teal
+    else if (roll < 0.60) hueIdx = 1;   // cyan
+    else if (roll < 0.80) hueIdx = 2;   // blue
+    else if (roll < 0.92) hueIdx = 3;   // warm
+    else hueIdx = 4;                     // rose (rare)
+
+    this.hue = PALETTE.hues[hueIdx] + random(-12, 12);
+    this.sat = random(50, 80);
+    this.bri = random(70, 100);
+  }
+
+  update(time) {
+    let flow = getFlow(this.x, this.y, time);
+    this.vx += flow.x * this.speedMult * 0.5;
+    this.vy += flow.y * this.speedMult * 0.5;
+
+    // Gentle drag
+    this.vx *= 0.94;
+    this.vy *= 0.94;
+
+    // Clamp speed
+    let spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    if (spd > CONFIG.maxSpeed) {
+      this.vx = (this.vx / spd) * CONFIG.maxSpeed;
+      this.vy = (this.vy / spd) * CONFIG.maxSpeed;
+    }
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Breathing pulse
+    this.size = this.baseSize * (1 + 0.35 * Math.sin(time * 15 + this.phase));
+
+    // Wrap
+    let margin = 20;
+    if (this.x > width + margin) this.x -= width + margin * 2;
+    if (this.x < -margin) this.x += width + margin * 2;
+    if (this.y > height + margin) this.y -= height + margin * 2;
+    if (this.y < -margin) this.y += height + margin * 2;
+  }
+
+  display(buf) {
+    let alpha = 80 * this.depth;
+
+    // Outer glow (soft, large)
+    buf.noStroke();
+    buf.fill(this.hue, this.sat * 0.5, this.bri, alpha * 0.3);
+    buf.ellipse(this.x, this.y, this.size * 6, this.size * 6);
+
+    // Mid glow
+    buf.fill(this.hue, this.sat * 0.7, this.bri, alpha * 0.6);
+    buf.ellipse(this.x, this.y, this.size * 3, this.size * 3);
+
+    // Core (bright, small)
+    buf.fill(this.hue, this.sat * 0.2, 100, alpha);
+    buf.ellipse(this.x, this.y, this.size, this.size);
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  trailLayer = createGraphics(width, height);
+  trailLayer.colorMode(HSB, 360, 100, 100, 100);
+  trailLayer.pixelDensity(1);
+  trailLayer.background(PALETTE.bgH, PALETTE.bgS, PALETTE.bgB);
+  bloomLayer = createGraphics(floor(width / 4), floor(height / 4));
+  bloomLayer.colorMode(HSB, 360, 100, 100, 100);
+  bloomLayer.pixelDensity(1);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('abyssal-bloom', 'png');
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = floor(random(99999));
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    organisms = [];
+    for (let i = 0; i < CONFIG.particleCount; i++) {
+      organisms.push(new Organism());
+    }
+    trailLayer.background(PALETTE.bgH, PALETTE.bgS, PALETTE.bgB);
+  }
+}
+</script>
+</body>
+</html>

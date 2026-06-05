@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Zoe ✶ — Essence</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #1a1814; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+const CONFIG = { seed: 270427, particles: 420, noiseScale: 0.003, flowSpeed: 0.0004 };
+const PALETTE = {
+  bg: [25, 15, 10],
+  copper: [22, 75, 72],      // auburn copper hair
+  ember: [28, 90, 85],       // warm highlights
+  greyGreen: [140, 25, 55],  // green-grey eyes
+  freckle: [15, 45, 78],     // skin/freckles
+  light: [38, 20, 92],       // luminous skin
+  accent: [180, 30, 70],     // eye detail accent
+};
+
+let flowField = [];
+let particles = [];
+let pg;
+
+class Particle {
+  constructor() {
+    this.pos = createVector(Math.random() * width, Math.random() * height);
+    this.vel = createVector(0, 0);
+    this.acc = createVector(0, 0);
+    this.maxSpeed = Math.random() * 2.5 + 0.8;
+    this.life = Math.random() * 200 + 100;
+    this.maxLife = this.life;
+    this.size = Math.random() * 3 + 1;
+    this.hue = Math.random();
+  }
+
+  update(flow) {
+    let angle = flow.map(Math.floor(this.pos.x), 0, width, 0, flow.length) *
+                flow.map(Math.floor(this.pos.y), 0, height, 0, flow[0].length);
+    angle = angle % (flow.length * flow[0].length);
+    let row = Math.floor(angle / flow.length);
+    let col = angle % flow.length;
+    let force = flow[row] && flow[row][col] ? flow[row][col] : 0;
+    this.acc.set(Math.cos(force) * 0.15, Math.sin(force) * 0.15);
+    this.vel.add(this.acc);
+    this.vel.limit(this.maxSpeed);
+    this.pos.add(this.vel);
+    this.life--;
+  }
+
+  display() {
+    let t = 1 - this.life / this.maxLife;
+    let alpha = t < 0.2 ? Math.map(t, 0, 0.2, 200, 50) : t > 0.8 ? Math.map(t, 0.8, 1, 50, 0) : 50;
+    let col;
+    let r = Math.random();
+    if (r < 0.35) {
+      col = PALETTE.copper;
+    } else if (r < 0.55) {
+      col = PALETTE.ember;
+    } else if (r < 0.70) {
+      col = PALETTE.greyGreen;
+    } else if (r < 0.82) {
+      col = PALETTE.freckle;
+    } else if (r < 0.92) {
+      col = PALETTE.light;
+    } else {
+      col = PALETTE.accent;
+    }
+    let h = Math.map(this.pos.x, 0, width, col[0] - 8, col[0] + 8);
+    let s = Math.map(t, 0, 1, col[1], col[1] * 0.4);
+    let b = Math.map(t, 0, 1, col[2], col[2] * 0.5);
+    fill(h, s, b, alpha);
+    noStroke();
+    ellipse(this.pos.x, this.pos.y, this.size, this.size);
+  }
+
+  isDead() { return this.life <= 0; }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  colorMode(HSB, 360, 100, 100, 255);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+  pg = createGraphics(width, height);
+  buildFlowField();
+  for (let i = 0; i < CONFIG.particles; i++) particles.push(new Particle());
+  buildBackground();
+}
+
+function buildFlowField() {
+  let cols = Math.ceil(width / 12);
+  let rows = Math.ceil(height / 12);
+  flowField = [];
+  for (let y = 0; y < rows; y++) {
+    let row = [];
+    for (let x = 0; x < cols; x++) {
+      let n = noise(x * CONFIG.noiseScale, y * CONFIG.noiseScale, frameCount * CONFIG.flowSpeed);
+      row.push(n * Math.PI * 4);
+    }
+    flowField.push(row);
+  }
+}
+
+function buildBackground() {
+  pg.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  pg.colorMode(HSB, 360, 100, 100, 255);
+  for (let i = 0; i < 120; i++) {
+    let x = Math.random() * width;
+    let y = Math.random() * height;
+    let sz = Math.random() * 80 + 20;
+    let n = noise(x * 0.002, y * 0.002);
+    let col = n < 0.5 ? PALETTE.copper : PALETTE.greyGreen;
+    let h = col[0] + Math.random() * 6 - 3;
+    let alpha = Math.random() * 15 + 5;
+    pg.fill(h, col[1] * 0.7, col[2] * 0.3, alpha);
+    pg.noStroke();
+    pg.ellipse(x, y, sz, sz);
+  }
+}
+
+function draw() {
+  image(pg, 0, 0);
+  for (let p of particles) {
+    p.update(flowField);
+    p.display();
+  }
+  // Slowly rebuild flow field
+  if (frameCount % 8 === 0) buildFlowField();
+  // Respawn dead particles
+  let dead = particles.filter(p => p.isDead());
+  for (let p of dead) {
+    let idx = particles.indexOf(p);
+    particles[idx] = new Particle();
+  }
+}
+
+function windowResized() { resizeCanvas(windowWidth, windowHeight); randomSeed(CONFIG.seed); noiseSeed(CONFIG.seed); buildFlowField(); particles = []; for (let i = 0; i < CONFIG.particles; i++) particles.push(new Particle()); buildBackground(); }
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('zoe_essence', 'png');
+  if (key === 'r' || key === 'R') { randomSeed(Date.now()); noiseSeed(Date.now()); buildFlowField(); }
+}
+</script>
+</body>
+</html>

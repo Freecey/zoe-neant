@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Zen Patterns</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+  }
+  #info {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3);
+    font-size: 12px;
+    letter-spacing: 2px;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">click anywhere to shift · Zoe ✶</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+let time = 0;
+let mouseX = 0.5, mouseY = 0.5;
+let paletteIndex = 0;
+
+const palettes = [
+  ['#ff006e', '#8338ec', '#3a86ff', '#06d6a0', '#ffbe0b'],
+  ['#f72585', '#7209b7', '#560bad', '#480ca8', '#3f37c9'],
+  ['#00f5d4', '#00bbf9', '#9b5de5', '#f15bb5', '#fee440'],
+  ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#073b4c'],
+  ['#e63946', '#f1faee', '#a8dadc', '#457b9d', '#1d3557'],
+];
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+canvas.addEventListener('mousemove', e => {
+  mouseX = e.clientX / W;
+  mouseY = e.clientY / H;
+});
+
+canvas.addEventListener('click', () => {
+  paletteIndex = (paletteIndex + 1) % palettes.length;
+});
+
+function draw() {
+  time += 0.008;
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.06)';
+  ctx.fillRect(0, 0, W, H);
+
+  const palette = palettes[paletteIndex];
+  const layers = 6;
+  const pointsPerLayer = 7;
+
+  for (let l = 0; l < layers; l++) {
+    const baseRadius = 80 + l * 55;
+    const speed = (l % 2 === 0 ? 1 : -1) * (0.3 + l * 0.1);
+
+    ctx.beginPath();
+    for (let i = 0; i <= 360; i++) {
+      const angle = (i * Math.PI) / 180;
+      const wobble1 = Math.sin(angle * pointsPerLayer + time * speed) * (25 + mouseX * 30);
+      const wobble2 = Math.cos(angle * (pointsPerLayer - 2) + time * speed * 0.7) * (15 + mouseY * 25);
+      const wobble3 = Math.sin(angle * 3 + time * 0.5) * 10;
+      const r = baseRadius + wobble1 + wobble2 + wobble3;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+
+    const color = palette[l % palette.length];
+    ctx.strokeStyle = color + '60';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Draw dots at vertices
+    for (let i = 0; i < pointsPerLayer * 2; i++) {
+      const angle = (i * Math.PI) / (pointsPerLayer) + time * speed * 0.3;
+      const wobble1 = Math.sin(angle * pointsPerLayer + time * speed) * (25 + mouseX * 30);
+      const wobble2 = Math.cos(angle * (pointsPerLayer - 2) + time * speed * 0.7) * (15 + mouseY * 25);
+      const r = baseRadius + wobble1 + wobble2;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = color + '90';
+      ctx.fill();
+    }
+  }
+
+  // Central glow
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+  gradient.addColorStop(0, palette[0] + '15');
+  gradient.addColorStop(1, 'transparent');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Floating particles
+  for (let i = 0; i < 3; i++) {
+    const t = time * (0.5 + i * 0.2) + i * 2.1;
+    const r = 200 + Math.sin(t * 0.3) * 100;
+    const angle = t * 0.4;
+    const px = cx + Math.cos(angle) * r;
+    const py = cy + Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.arc(px, py, 3 + Math.sin(t) * 2, 0, Math.PI * 2);
+    ctx.fillStyle = palette[(i + 1) % palette.length] + 'aa';
+    ctx.fill();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// Initial clear
+ctx.fillStyle = '#0a0a0f';
+ctx.fillRect(0, 0, W, H);
+
+draw();
+</script>
+</body>
+</html>

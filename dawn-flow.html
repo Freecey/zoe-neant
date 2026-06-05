@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dawn Flow</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0a0f; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Dawn Flow — a meditative noise-driven particle field ===
+
+const CONFIG = {
+  seed: 42,
+  particleCount: 3500,
+  noiseScale: 0.003,
+  noiseSpeed: 0.0003,
+  warpStrength: 0.6,
+  trailFade: 8,
+  flowStrength: 1.2,
+  maxLife: 600,
+};
+
+// Dawn palette — warm rose to cool lavender
+const PALETTE = {
+  bg: [15, 20, 30],
+  colors: [
+    [350, 55, 85],  // soft rose
+    [20, 65, 90],   // peach
+    [40, 50, 80],   // warm gold
+    [270, 35, 75],  // lavender
+    [320, 45, 70],  // mauve
+    [200, 30, 60],  // dusty blue
+  ]
+};
+
+let particles = [];
+let zoff = 0;
+
+// Fractal brownian motion — layered noise for organic feel
+function fbm(x, y, z, octaves = 4) {
+  let val = 0, amp = 1, freq = 1, sum = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += noise(x * freq, y * freq, z * freq) * amp;
+    sum += amp;
+    amp *= 0.5;
+    freq *= 2.0;
+  }
+  return val / sum;
+}
+
+// Domain-warped noise — feeds noise back into itself
+function warpedNoise(x, y, z) {
+  let q = fbm(x, y, z, 3);
+  let r = fbm(x + 5.2, y + 1.3, z + 2.8, 3);
+  return fbm(
+    x + CONFIG.warpStrength * q,
+    y + CONFIG.warpStrength * r,
+    z
+  , 4);
+}
+
+class Particle {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.x = Math.random() * width;
+    this.y = Math.random() * height;
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.life = 0;
+    this.maxLife = CONFIG.maxLife + Math.floor(Math.random() * 200 - 100);
+    this.colorIdx = Math.floor(Math.random() * PALETTE.colors.length);
+    this.speed = 0.5 + Math.random() * 1.0;
+    this.weight = 0.3 + Math.random() * 1.2;
+  }
+
+  update() {
+    this.prevX = this.x;
+    this.prevY = this.y;
+
+    let n = warpedNoise(
+      this.x * CONFIG.noiseScale,
+      this.y * CONFIG.noiseScale,
+      zoff
+    );
+
+    let angle = n * Math.PI * 4;
+    let vx = Math.cos(angle) * this.speed * CONFIG.flowStrength;
+    let vy = Math.sin(angle) * this.speed * CONFIG.flowStrength;
+
+    this.x += vx;
+    this.y += vy;
+    this.life++;
+
+    // Wrap around edges with margin
+    let margin = 20;
+    if (this.x < -margin) this.x = width + margin;
+    if (this.x > width + margin) this.x = -margin;
+    if (this.y < -margin) this.y = height + margin;
+    if (this.y > height + margin) this.y = -margin;
+
+    if (this.life > this.maxLife) this.reset();
+  }
+
+  display() {
+    // Fade in and out over lifetime
+    let lifeRatio = this.life / this.maxLife;
+    let alpha;
+    if (lifeRatio < 0.05) alpha = lifeRatio / 0.05;
+    else if (lifeRatio > 0.85) alpha = (1 - lifeRatio) / 0.15;
+    else alpha = 1;
+    alpha = Math.max(0, Math.min(1, alpha));
+
+    let c = PALETTE.colors[this.colorIdx];
+    // Slight hue drift over lifetime
+    let hueShift = (lifeRatio * 20) - 10;
+
+    strokeWeight(this.weight);
+    stroke(
+      (c[0] + hueShift + 360) % 360,
+      c[1] + Math.sin(lifeRatio * Math.PI) * 10,
+      c[2],
+      alpha * 45
+    );
+
+    // Only draw line if not wrapping
+    let dx = Math.abs(this.x - this.prevX);
+    let dy = Math.abs(this.y - this.prevY);
+    if (dx < width * 0.5 && dy < height * 0.5) {
+      line(this.prevX, this.prevY, this.x, this.y);
+    }
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+  colorMode(HSB, 360, 100, 100, 100);
+
+  // Initial background
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new Particle());
+  }
+}
+
+function draw() {
+  // Subtle fade for trails
+  noStroke();
+  fill(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], CONFIG.trailFade);
+  rect(0, 0, width, height);
+
+  // Advance time
+  zoff += CONFIG.noiseSpeed;
+
+  for (let p of particles) {
+    p.update();
+    p.display();
+  }
+
+  // Subtle vignette overlay
+  drawVignette();
+}
+
+function drawVignette() {
+  // Only redraw vignette occasionally to save performance
+  if (frameCount % 30 !== 0) return;
+
+  let cx = width / 2;
+  let cy = height / 2;
+  let maxR = Math.sqrt(cx * cx + cy * cy);
+
+  noFill();
+  for (let i = 0; i < 40; i++) {
+    let r = maxR * (0.6 + i * 0.01);
+    let alpha = map(i, 0, 40, 0, 15);
+    stroke(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], alpha);
+    strokeWeight(maxR * 0.02);
+    ellipse(cx, cy, r * 2, r * 2);
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  // Reset particles to new canvas size
+  for (let p of particles) p.reset();
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('dawn-flow', 'png');
+  if (key === 'g' || key === 'G') saveGif('dawn-flow', 8);
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = floor(random(99999));
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+    for (let p of particles) p.reset();
+  }
+  if (key === ' ') noLoop();
+}
+</script>
+</body>
+</html>

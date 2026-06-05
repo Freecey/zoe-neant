@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abyssal Creatures — Bioluminescent Colony</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Configuration ===
+const CONFIG = {
+  seed: 42,
+  creatureCount: 18,
+  particleCount: 600,
+  maxSpeed: 0.6,
+  connectionDist: 200,
+  breathSpeed: 0.015,
+};
+
+// === Palette — deep ocean bioluminescence ===
+const PALETTE = {
+  bg: [8, 3, 18],
+  creatures: [
+    [175, 255, 220],   // pale seafoam
+    [80, 220, 255],    // cyan glow
+    [140, 100, 255],   // violet pulse
+    [255, 80, 180],    // magenta heartbeat
+    [60, 255, 200],    // teal nerve
+    [255, 200, 80],    // amber spark
+  ],
+  particles: [120, 200, 255],
+  connectionAlpha: 12,
+};
+
+// === State ===
+let creatures = [];
+let driftParticles = [];
+let trailLayer, glowLayer, bloomBuf;
+let globalTime = 0;
+
+// === Creature Class ===
+class Creature {
+  constructor(x, y, seed) {
+    this.pos = { x, y };
+    this.vel = { x: (Math.random() - 0.5) * 0.3, y: (Math.random() - 0.5) * 0.3 };
+    this.seed = seed;
+    this.baseRadius = 25 + Math.random() * 40;
+    this.colorIdx = Math.floor(Math.random() * PALETTE.creatures.length);
+    this.breathPhase = Math.random() * Math.PI * 2;
+    this.breathFreq = CONFIG.breathSpeed + Math.random() * 0.01;
+    this.tentacleCount = 3 + Math.floor(Math.random() * 5);
+    this.tentacleLen = this.baseRadius * (1.5 + Math.random() * 2);
+    this.pulseTimer = 0;
+    this.pulseInterval = 120 + Math.floor(Math.random() * 300);
+    this.innerParts = [];
+    this.wanderAngle = Math.random() * Math.PI * 2;
+    this.organCount = 2 + Math.floor(Math.random() * 3);
+
+    // Generate internal organ positions
+    for (let i = 0; i < this.organCount; i++) {
+      this.innerParts.push({
+        angle: Math.random() * Math.PI * 2,
+        dist: Math.random() * this.baseRadius * 0.4,
+        size: 3 + Math.random() * 6,
+        phaseSpeed: 0.02 + Math.random() * 0.03,
+      });
+    }
+  }
+
+  update() {
+    // Wander — smooth noise-driven steering
+    this.wanderAngle += (noise(this.seed * 0.1, globalTime * 0.3) - 0.5) * 0.08;
+    this.vel.x += Math.cos(this.wanderAngle) * 0.01;
+    this.vel.y += Math.sin(this.wanderAngle) * 0.01;
+
+    // Gentle upward drift (buoyancy)
+    this.vel.y -= 0.002;
+
+    // Speed limit
+    let spd = Math.sqrt(this.vel.x * this.vel.x + this.vel.y * this.vel.y);
+    if (spd > CONFIG.maxSpeed) {
+      this.vel.x *= CONFIG.maxSpeed / spd;
+      this.vel.y *= CONFIG.maxSpeed / spd;
+    }
+
+    // Damping
+    this.vel.x *= 0.998;
+    this.vel.y *= 0.998;
+
+    this.pos.x += this.vel.x;
+    this.pos.y += this.vel.y;
+
+    // Wrap with padding
+    let pad = this.baseRadius * 3;
+    if (this.pos.x < -pad) this.pos.x = width + pad;
+    if (this.pos.x > width + pad) this.pos.x = -pad;
+    if (this.pos.y < -pad) this.pos.y = height + pad;
+    if (this.pos.y > height + pad) this.pos.y = -pad;
+
+    // Breath
+    this.breathPhase += this.breathFreq;
+
+    // Pulse emission
+    this.pulseTimer++;
+  }
+
+  breathe() {
+    return Math.sin(this.breathPhase) * 0.2 + 1.0;
+  }
+
+  pulsing() {
+    return this.pulseTimer >= this.pulseInterval;
+  }
+
+  emitPulse() {
+    this.pulseTimer = 0;
+    this.pulseInterval = 120 + Math.floor(Math.random() * 300);
+  }
+
+  draw(buffer) {
+    let b = this.breathe();
+    let r = this.baseRadius * b;
+    let col = PALETTE.creatures[this.colorIdx];
+
+    // Outer membrane — soft glow
+    for (let layer = 3; layer >= 0; layer--) {
+      let lr = r * (1 + layer * 0.3);
+      let alpha = (8 - layer * 2) * b;
+      buffer.noStroke();
+      buffer.fill(col[0], col[1], col[2], alpha);
+      buffer.ellipse(this.pos.x, this.pos.y, lr * 2, lr * 2);
+    }
+
+    // Body core
+    buffer.noStroke();
+    buffer.fill(col[0], col[1], col[2], 35 * b);
+    buffer.ellipse(this.pos.x, this.pos.y, r * 2, r * 1.7);
+
+    // Inner nucleus
+    let nucleusSize = r * 0.35 * b;
+    buffer.fill(col[0], col[1], col[2], 90 * b);
+    buffer.ellipse(this.pos.x, this.pos.y, nucleusSize * 2, nucleusSize * 2);
+
+    // Internal organs — pulsing dots
+    for (let organ of this.innerParts) {
+      let angle = organ.angle + Math.sin(globalTime * organ.phaseSpeed) * 0.3;
+      let d = organ.dist * b;
+      let ox = this.pos.x + Math.cos(angle) * d;
+      let oy = this.pos.y + Math.sin(angle) * d;
+      let oSize = organ.size * b;
+      buffer.fill(col[0], col[1], col[2], 60 * b);
+      buffer.ellipse(ox, oy, oSize, oSize);
+    }
+
+    // Tentacles — flowing filaments
+    for (let t = 0; t < this.tentacleCount; t++) {
+      let baseAngle = (t / this.tentacleCount) * Math.PI * 2 + this.seed;
+      this.drawTentacle(buffer, baseAngle, r, col, b);
+    }
+  }
+
+  drawTentacle(buffer, baseAngle, bodyRadius, col, breath) {
+    let segments = 8;
+    let segLen = this.tentacleLen / segments;
+    let prevX = this.pos.x + Math.cos(baseAngle) * bodyRadius * 0.6;
+    let prevY = this.pos.y + Math.sin(baseAngle) * bodyRadius * 0.6;
+
+    for (let i = 0; i < segments; i++) {
+      let t = i / segments;
+      let waveOffset = Math.sin(globalTime * 0.8 + i * 0.7 + this.seed * 3) * 0.3 * (1 + t);
+      let angle = baseAngle + waveOffset;
+      // Gravity pull — tentacles droop
+      angle += Math.PI * 0.5 * t * 0.15;
+
+      let nx = prevX + Math.cos(angle) * segLen;
+      let ny = prevY + Math.sin(angle) * segLen;
+
+      let alpha = (50 - t * 45) * breath;
+      let sw = (2.5 - t * 2) * breath;
+      buffer.stroke(col[0], col[1], col[2], Math.max(0, alpha));
+      buffer.strokeWeight(Math.max(0.3, sw));
+      buffer.line(prevX, prevY, nx, ny);
+
+      // Bioluminescent dots along tentacle
+      if (i % 2 === 0 && Math.random() < 0.5) {
+        buffer.noStroke();
+        buffer.fill(col[0], col[1], col[2], (30 - t * 25) * breath);
+        buffer.ellipse(nx, ny, (3 - t * 2) * breath);
+      }
+
+      prevX = nx;
+      prevY = ny;
+    }
+  }
+}
+
+// === Drift Particle (marine snow / plankton) ===
+class DriftParticle {
+  constructor() {
+    this.reset();
+    this.y = Math.random() * (height || 1080);
+  }
+
+  reset() {
+    this.x = Math.random() * (width || 1920);
+    this.y = -5;
+    this.size = 0.5 + Math.random() * 2;
+    this.speed = 0.1 + Math.random() * 0.4;
+    this.wobbleAmp = Math.random() * 30;
+    this.wobbleSpeed = 0.005 + Math.random() * 0.01;
+    this.phase = Math.random() * Math.PI * 2;
+    this.alpha = 15 + Math.random() * 35;
+  }
+
+  update() {
+    this.y += this.speed;
+    this.x += Math.sin(this.phase + globalTime * this.wobbleSpeed) * 0.3;
+    this.phase += 0.01;
+    if (this.y > (height || 1080) + 10) this.reset();
+  }
+
+  draw(buffer) {
+    buffer.noStroke();
+    let pCol = PALETTE.particles;
+    buffer.fill(pCol[0], pCol[1], pCol[2], this.alpha);
+    buffer.ellipse(this.x, this.y, this.size);
+  }
+}
+
+// === Pulse wave (communication between creatures) ===
+let pulseWaves = [];
+
+class PulseWave {
+  constructor(x, y, col) {
+    this.x = x;
+    this.y = y;
+    this.col = col;
+    this.radius = 0;
+    this.maxRadius = CONFIG.connectionDist * 1.2;
+    this.life = 1.0;
+  }
+
+  update() {
+    this.radius += 2.5;
+    this.life = 1 - this.radius / this.maxRadius;
+  }
+
+  draw(buffer) {
+    if (this.life <= 0) return;
+    let c = this.col;
+    buffer.noFill();
+    buffer.stroke(c[0], c[1], c[2], this.life * 40);
+    buffer.strokeWeight(1.5 * this.life);
+    buffer.ellipse(this.x, this.y, this.radius * 2);
+  }
+
+  isDead() { return this.life <= 0; }
+}
+
+// === Setup ===
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+  colorMode(RGB, 255, 255, 255, 255);
+
+  trailLayer = createGraphics(width, height);
+  trailLayer.pixelDensity(1);
+  trailLayer.colorMode(RGB, 255, 255, 255, 255);
+
+  glowLayer = createGraphics(width, height);
+  glowLayer.pixelDensity(1);
+  glowLayer.colorMode(RGB, 255, 255, 255, 255);
+
+  bloomBuf = createGraphics(Math.ceil(width / 4), Math.ceil(height / 4));
+  bloomBuf.pixelDensity(1);
+
+  // Spawn creatures
+  for (let i = 0; i < CONFIG.creatureCount; i++) {
+    creatures.push(new Creature(
+      Math.random() * width,
+      Math.random() * height,
+      i
+    ));
+  }
+
+  // Spawn drift particles
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    driftParticles.push(new DriftParticle());
+  }
+}
+
+// === Draw ===
+function draw() {
+  globalTime = frameCount * 0.02;
+
+  // Fade trail layer
+  trailLayer.blendMode(REMOVE);
+  trailLayer.noStroke();
+  trailLayer.fill(255, 255, 255, 8);
+  trailLayer.rect(0, 0, width, height);
+  trailLayer.blendMode(BLEND);
+
+  // Update creatures
+  for (let c of creatures) {
+    c.update();
+
+    // Draw creature trails on trail layer
+    let b = c.breathe();
+    let col = PALETTE.creatures[c.colorIdx];
+    trailLayer.noStroke();
+    trailLayer.fill(col[0], col[1], col[2], 6 * b);
+    trailLayer.ellipse(c.pos.x, c.pos.y, c.baseRadius * b * 0.8);
+
+    // Pulse emission
+    if (c.pulsing()) {
+      c.emitPulse();
+      pulseWaves.push(new PulseWave(c.pos.x, c.pos.y, col));
+    }
+  }
+
+  // Update and draw drift particles on trail layer
+  for (let p of driftParticles) {
+    p.update();
+    p.draw(trailLayer);
+  }
+
+  // Update pulse waves
+  for (let pw of pulseWaves) pw.update();
+  pulseWaves = pulseWaves.filter(pw => !pw.isDead());
+
+  // === Render glow layer (creatures) ===
+  glowLayer.clear();
+  for (let c of creatures) {
+    c.draw(glowLayer);
+  }
+
+  // Draw connections between nearby creatures
+  for (let i = 0; i < creatures.length; i++) {
+    for (let j = i + 1; j < creatures.length; j++) {
+      let dx = creatures[i].pos.x - creatures[j].pos.x;
+      let dy = creatures[i].pos.y - creatures[j].pos.y;
+      let d = Math.sqrt(dx * dx + dy * dy);
+      if (d < CONFIG.connectionDist) {
+        let alpha = (1 - d / CONFIG.connectionDist) * CONFIG.connectionAlpha;
+        let ci = PALETTE.creatures[creatures[i].colorIdx];
+        let cj = PALETTE.creatures[creatures[j].colorIdx];
+        let mixCol = [
+          (ci[0] + cj[0]) / 2,
+          (ci[1] + cj[1]) / 2,
+          (ci[2] + cj[2]) / 2,
+        ];
+        glowLayer.stroke(mixCol[0], mixCol[1], mixCol[2], alpha);
+        glowLayer.strokeWeight(0.5);
+        glowLayer.line(
+          creatures[i].pos.x, creatures[i].pos.y,
+          creatures[j].pos.x, creatures[j].pos.y
+        );
+      }
+    }
+  }
+
+  // Draw pulse waves on glow layer
+  for (let pw of pulseWaves) pw.draw(glowLayer);
+
+  // === Composite ===
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  image(trailLayer, 0, 0);
+
+  // Bloom pass — downsample glow, blur, add
+  bloomBuf.clear();
+  bloomBuf.image(glowLayer, 0, 0, bloomBuf.width, bloomBuf.height);
+  bloomBuf.filter(BLUR, 4);
+
+  image(glowLayer, 0, 0);
+  blendMode(ADD);
+  tint(255, 90);
+  image(bloomBuf, 0, 0, width, height);
+  noTint();
+  blendMode(BLEND);
+
+  // Vignette via canvas API
+  drawVignette();
+
+  // Key hints
+  fill(255, 40);
+  noStroke();
+  textSize(11);
+  textFont('monospace');
+  textAlign(RIGHT, BOTTOM);
+  text('[S] save  [R] reseed  [SPACE] pause', width - 16, height - 12);
+}
+
+function drawVignette() {
+  let ctx = drawingContext;
+  let cx = width / 2, cy = height / 2;
+  let maxR = Math.sqrt(cx * cx + cy * cy);
+  let grad = ctx.createRadialGradient(cx, cy, maxR * 0.25, cx, cy, maxR);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.6, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.75)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+}
+
+// === Events ===
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('abyssal-creatures', 'png');
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = Math.floor(Math.random() * 99999);
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    creatures = [];
+    for (let i = 0; i < CONFIG.creatureCount; i++) {
+      creatures.push(new Creature(Math.random() * width, Math.random() * height, i));
+    }
+  }
+  if (key === ' ') {
+    if (isLooping()) noLoop();
+    else loop();
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  trailLayer.resizeCanvas(width, height);
+  glowLayer.resizeCanvas(width, height);
+  bloomBuf.resizeCanvas(Math.ceil(width / 4), Math.ceil(height / 4));
+}
+</script>
+</body>
+</html>

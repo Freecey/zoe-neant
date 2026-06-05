@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tidal — Zoe ✶</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Tidal — Organic curl noise flow with deep ocean palette ===
+// Zoe ✶ — Free exploration piece
+
+const CONFIG = {
+  seed: 44219,
+  particleCount: 3000,
+  noiseScale: 0.0025,
+  noiseSpeed: 0.0008,
+  curlEps: 0.0005,
+  maxSpeed: 1.8,
+  forceStrength: 0.35,
+  trailFadeAlpha: 4,
+  strokeAlpha: 90,
+  bloomAlpha: 50,
+};
+
+// Deep ocean meets ember — unexpected warmth in the deep
+const PALETTE = {
+  bg: [8, 12, 22],
+  colors: [
+    [0, 210, 175],   // teal
+    [0, 160, 210],   // cerulean
+    [220, 140, 50],  // warm amber accent
+    [180, 60, 90],   // deep rose
+    [60, 220, 130],  // seafoam
+    [255, 200, 80],  // gold
+  ]
+};
+
+let trailBuf, bloomBuf;
+let particles = [];
+let t = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  trailBuf = createGraphics(width, height);
+  trailBuf.pixelDensity(1);
+  trailBuf.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+
+  bloomBuf = createGraphics(width, height);
+  bloomBuf.pixelDensity(1);
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new TidalParticle(
+      random(width),
+      random(height),
+      floor(random(PALETTE.colors.length))
+    ));
+  }
+}
+
+function draw() {
+  t += CONFIG.noiseSpeed;
+
+  // Fade trails
+  trailBuf.noStroke();
+  trailBuf.fill(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], CONFIG.trailFadeAlpha);
+  trailBuf.rect(0, 0, width, height);
+
+  // Update and draw particles
+  for (let p of particles) {
+    p.follow(t);
+    p.update();
+    p.display(trailBuf);
+  }
+
+  // Build bloom from trail buffer
+  bloomBuf.clear();
+  bloomBuf.image(trailBuf, 0, 0, width / 4, height / 4);
+  bloomBuf.filter(BLUR, 5);
+
+  // Composite: trails + bloom
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  image(trailBuf, 0, 0);
+  blendMode(ADD);
+  tint(255, CONFIG.bloomAlpha);
+  image(bloomBuf, 0, 0, width, height);
+  noTint();
+  blendMode(BLEND);
+}
+
+// Curl noise — divergence-free flow
+function curlNoise(x, y, time) {
+  let s = CONFIG.noiseScale;
+  let e = CONFIG.curlEps;
+  let n1 = noise((x + e) * s, y * s, time) - noise((x - e) * s, y * s, time);
+  let n2 = noise(x * s, (y + e) * s, time) - noise(x * s, (y - e) * s, time);
+  // Perpendicular to gradient = curl
+  return createVector(n2 / (2 * e), -n1 / (2 * e));
+}
+
+// Domain-warped noise for extra organic feel
+function warpedCurl(x, y, time) {
+  // Warp coordinates with slow noise
+  let wx = noise(x * 0.001, y * 0.001, time * 0.3) * 200 - 100;
+  let wy = noise(x * 0.001 + 100, y * 0.001 + 100, time * 0.3) * 200 - 100;
+  return curlNoise(x + wx, y + wy, time);
+}
+
+class TidalParticle {
+  constructor(x, y, colorIdx) {
+    this.pos = createVector(x, y);
+    this.vel = p5.Vector.random2D().mult(random(0.2, 0.8));
+    this.prev = this.pos.copy();
+    this.colorIdx = colorIdx;
+    this.maxSpeed = CONFIG.maxSpeed * random(0.6, 1.4);
+    this.weight = random(0.3, 1.2);
+    this.alpha = CONFIG.strokeAlpha * random(0.5, 1.0);
+    this.life = random(500, 2000);
+    this.age = 0;
+  }
+
+  follow(time) {
+    let force = warpedCurl(this.pos.x, this.pos.y, time);
+    force.mult(CONFIG.forceStrength);
+    this.vel.add(force);
+  }
+
+  update() {
+    this.prev = this.pos.copy();
+    this.vel.limit(this.maxSpeed);
+    // Slight drag for organic feel
+    this.vel.mult(0.98);
+    this.pos.add(this.vel);
+    this.age++;
+
+    // Wrap edges — reset prev to avoid cross-lines
+    let wrapped = false;
+    if (this.pos.x > width) { this.pos.x = 0; wrapped = true; }
+    if (this.pos.x < 0) { this.pos.x = width; wrapped = true; }
+    if (this.pos.y > height) { this.pos.y = 0; wrapped = true; }
+    if (this.pos.y < 0) { this.pos.y = height; wrapped = true; }
+    if (wrapped) this.prev = this.pos.copy();
+
+    // Respawn when aged out
+    if (this.age > this.life) {
+      this.pos.set(random(width), random(height));
+      this.prev = this.pos.copy();
+      this.vel.set(0, 0);
+      this.age = 0;
+      this.life = random(500, 2000);
+      this.colorIdx = floor(random(PALETTE.colors.length));
+    }
+  }
+
+  display(buf) {
+    let c = PALETTE.colors[this.colorIdx];
+    // Age-based fade: fade in, full, fade out
+    let lifeRatio = this.age / this.life;
+    let fadeFactor = 1.0;
+    if (lifeRatio < 0.05) fadeFactor = lifeRatio / 0.05;
+    else if (lifeRatio > 0.85) fadeFactor = (1.0 - lifeRatio) / 0.15;
+
+    buf.stroke(c[0], c[1], c[2], this.alpha * fadeFactor);
+    buf.strokeWeight(this.weight);
+    buf.line(this.prev.x, this.prev.y, this.pos.x, this.pos.y);
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  trailBuf = createGraphics(width, height);
+  trailBuf.pixelDensity(1);
+  trailBuf.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  bloomBuf = createGraphics(width, height);
+  bloomBuf.pixelDensity(1);
+  // Reset particles
+  for (let p of particles) {
+    p.pos.set(random(width), random(height));
+    p.prev = p.pos.copy();
+  }
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('tidal', 'png');
+  if (key === 'g' || key === 'G') saveGif('tidal', 5);
+  if (key === 'r' || key === 'R') {
+    CONFIG.seed = floor(random(99999));
+    randomSeed(CONFIG.seed);
+    noiseSeed(CONFIG.seed);
+    trailBuf.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  }
+}
+</script>
+</body>
+</html>

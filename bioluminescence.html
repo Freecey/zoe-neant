@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bioluminescence</title>
+  <script>p5.disableFriendlyErrors = true;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #020810; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// === Bioluminescence — Zoe ✶ ===
+// Deep sea particles breathing in a noise-driven current
+// Domain-warped flow field with organic glow trails
+
+const CONFIG = {
+  seed: 42666,
+  particleCount: 180,
+  noiseScale: 0.003,
+  speed: 0.8,
+  trailFade: 1.5,
+  glowSize: 16,
+  breathSpeed: 0.0008,
+  warpStrength: 200,
+};
+
+// Deep sea palette — cold blues, warm accents
+const PALETTE = {
+  bg: [220, 60, 4],       // very dark navy
+  colors: [
+    [185, 70, 85, 60],    // teal glow
+    [200, 55, 75, 45],    // cyan whisper
+    [170, 80, 90, 70],    // aquamarine bright
+    [45,  90, 95, 55],    // warm gold accent (rare)
+    [280, 40, 70, 40],    // deep violet (rare)
+    [160, 90, 95, 50],    // mint flash
+  ]
+};
+
+let particles = [];
+let trailLayer;
+let t = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  colorMode(HSB, 360, 100, 100, 100);
+  randomSeed(CONFIG.seed);
+  noiseSeed(CONFIG.seed);
+
+  trailLayer = createGraphics(width, height);
+  trailLayer.colorMode(HSB, 360, 100, 100, 100);
+  trailLayer.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+
+  for (let i = 0; i < CONFIG.particleCount; i++) {
+    particles.push(new Particle());
+  }
+}
+
+function draw() {
+  t = millis() * 0.001;
+
+  // Breathing global brightness modulation
+  let breath = Math.sin(t * CONFIG.breathSpeed * TAU) * 0.3 + 0.7;
+
+  // Fade trail layer toward background
+  trailLayer.noStroke();
+  trailLayer.fill(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2], CONFIG.trailFade);
+  trailLayer.rect(0, 0, width, height);
+
+  // Update and draw particles onto trail layer
+  for (let p of particles) {
+    p.update(breath);
+    p.displayTrail(trailLayer, breath);
+  }
+
+  // Composite: background + trails
+  background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+  image(trailLayer, 0, 0);
+
+  // Draw current-frame glow on top
+  blendMode(ADD);
+  for (let p of particles) {
+    p.displayGlow(breath);
+  }
+  blendMode(BLEND);
+
+  // Subtle vignette
+  drawVignette();
+}
+
+// === Domain-warped noise flow field ===
+function flowAngle(x, y) {
+  let nx = x * CONFIG.noiseScale;
+  let ny = y * CONFIG.noiseScale;
+
+  // First warp pass
+  let wx = noise(nx + 100, ny + 100, t * 0.15) * CONFIG.warpStrength;
+  let wy = noise(nx + 200, ny + 200, t * 0.15) * CONFIG.warpStrength;
+
+  // Second warp pass (deeper)
+  let wx2 = noise(nx + wx * 0.01 + 300, ny + wy * 0.01 + 300, t * 0.1) * CONFIG.warpStrength * 0.5;
+  let wy2 = noise(nx + wx * 0.01 + 400, ny + wy * 0.01 + 400, t * 0.1) * CONFIG.warpStrength * 0.5;
+
+  let angle = noise(nx + wx2 * 0.005, ny + wy2 * 0.005, t * 0.08) * TAU * 3;
+  return angle;
+}
+
+// === Particle Class ===
+class Particle {
+  constructor() {
+    this.reset();
+    // Weighted color — most are blue/teal, rare gold/violet
+    let r = random();
+    if (r < 0.35) this.colorIdx = 0;       // teal
+    else if (r < 0.6) this.colorIdx = 1;   // cyan
+    else if (r < 0.78) this.colorIdx = 2;  // aquamarine
+    else if (r < 0.85) this.colorIdx = 3;  // gold (rare)
+    else if (r < 0.92) this.colorIdx = 4;  // violet (rare)
+    else this.colorIdx = 5;                 // mint
+    this.baseSize = random(3, 8);
+    this.phaseOffset = random(TAU);
+    this.speedMult = random(0.5, 1.5);
+  }
+
+  reset() {
+    this.x = random(width);
+    this.y = random(height);
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  update(breath) {
+    let angle = flowAngle(this.x, this.y);
+    let speed = CONFIG.speed * this.speedMult * breath;
+    this.vx += Math.cos(angle) * speed * 0.1;
+    this.vy += Math.sin(angle) * speed * 0.1;
+
+    // Damping
+    this.vx *= 0.96;
+    this.vy *= 0.96;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // Wrap around edges with margin
+    let m = 50;
+    if (this.x < -m) this.x = width + m;
+    if (this.x > width + m) this.x = -m;
+    if (this.y < -m) this.y = height + m;
+    if (this.y > height + m) this.y = -m;
+  }
+
+  displayTrail(layer, breath) {
+    let c = PALETTE.colors[this.colorIdx];
+    let pulse = Math.sin(t * 2 + this.phaseOffset) * 0.4 + 0.6;
+    let sz = this.baseSize * pulse * breath;
+    let alpha = c[3] * pulse * breath;
+
+    layer.noStroke();
+    layer.fill(c[0], c[1], c[2], Math.max(0, Math.min(100, alpha)));
+    layer.ellipse(this.x, this.y, sz, sz);
+  }
+
+  displayGlow(breath) {
+    let c = PALETTE.colors[this.colorIdx];
+    let pulse = Math.sin(t * 2 + this.phaseOffset) * 0.4 + 0.6;
+    let sz = this.baseSize * CONFIG.glowSize * pulse * breath * 0.3;
+    let alpha = c[3] * 0.15 * pulse * breath;
+
+    noStroke();
+    fill(c[0], c[1], Math.min(100, c[2] + 10), Math.max(0, Math.min(100, alpha)));
+    ellipse(this.x, this.y, sz, sz);
+
+    // Core bright point
+    let coreSz = this.baseSize * pulse * breath * 0.6;
+    fill(c[0], Math.max(0, c[1] - 20), Math.min(100, c[2] + 20), Math.max(0, Math.min(100, alpha * 2)));
+    ellipse(this.x, this.y, coreSz, coreSz);
+  }
+}
+
+function drawVignette() {
+  let ctx = drawingContext;
+  let cx = width * 0.5, cy = height * 0.5;
+  let maxR = Math.sqrt(cx * cx + cy * cy);
+  let grad = ctx.createRadialGradient(cx, cy, maxR * 0.25, cx, cy, maxR);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.7, 'rgba(2,8,16,0.3)');
+  grad.addColorStop(1, 'rgba(2,8,16,0.85)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  trailLayer = createGraphics(width, height);
+  trailLayer.colorMode(HSB, 360, 100, 100, 100);
+  trailLayer.background(PALETTE.bg[0], PALETTE.bg[1], PALETTE.bg[2]);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('bioluminescence', 'png');
+  if (key === 'r' || key === 'R') {
+    randomSeed(millis());
+    noiseSeed(millis());
+  }
+}
+</script>
+</body>
+</html>

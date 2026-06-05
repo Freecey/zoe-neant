@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fractal Bloom — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; overflow: hidden; cursor: crosshair; }
+  canvas { display: block; }
+  #hint {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.25); font-family: monospace; font-size: 13px;
+    letter-spacing: 2px; pointer-events: none;
+    animation: fade 4s ease-in-out infinite;
+  }
+  @keyframes fade { 0%,100%{opacity:0.15} 50%{opacity:0.4} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">move your mouse · click to bloom · scroll to shift</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+let mouseX, mouseY;
+let hueBase = 280;
+let blooms = [];
+let particles = [];
+let time = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+  mouseX = cx; mouseY = cy;
+}
+resize();
+window.addEventListener('resize', resize);
+
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+});
+
+document.addEventListener('click', e => {
+  for (let i = 0; i < 5; i++) {
+    blooms.push(createBloom(e.clientX, e.clientY));
+  }
+  // burst particles
+  for (let i = 0; i < 30; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    particles.push({
+      x: e.clientX, y: e.clientY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1, decay: 0.005 + Math.random() * 0.015,
+      hue: hueBase + Math.random() * 60 - 30,
+      size: 1 + Math.random() * 3
+    });
+  }
+});
+
+document.addEventListener('wheel', e => {
+  hueBase = (hueBase + e.deltaY * 0.2 + 360) % 360;
+});
+
+function createBloom(x, y) {
+  const depth = 5 + Math.floor(Math.random() * 4);
+  const spread = 0.3 + Math.random() * 0.5;
+  const len = 30 + Math.random() * 60;
+  const hue = hueBase + Math.random() * 40 - 20;
+  return { x, y, angle: Math.random() * Math.PI * 2, depth, spread, len, hue, age: 0, maxAge: 200 + Math.random() * 300 };
+}
+
+function drawBranch(x, y, angle, len, depth, spread, hue, alpha) {
+  if (depth <= 0 || len < 2) return;
+  const x2 = x + Math.cos(angle) * len;
+  const y2 = y + Math.sin(angle) * len;
+
+  const grad = ctx.createLinearGradient(x, y, x2, y2);
+  grad.addColorStop(0, `hsla(${hue}, 80%, 65%, ${alpha})`);
+  grad.addColorStop(1, `hsla(${hue + 30}, 70%, 45%, ${alpha * 0.4})`);
+
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = Math.max(0.5, depth * 0.6);
+  ctx.stroke();
+
+  // glow at tip
+  if (depth <= 2) {
+    ctx.beginPath();
+    ctx.arc(x2, y2, 2 + Math.random() * 2, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue + 20}, 90%, 75%, ${alpha * 0.6})`;
+    ctx.fill();
+  }
+
+  const newLen = len * (0.65 + Math.sin(time * 0.5 + depth) * 0.08);
+  const sway = Math.sin(time * 0.3 + depth * 0.7) * 0.05;
+  drawBranch(x2, y2, angle - spread + sway, newLen, depth - 1, spread, hue + 5, alpha * 0.85);
+  drawBranch(x2, y2, angle + spread + sway, newLen, depth - 1, spread, hue - 5, alpha * 0.85);
+}
+
+function drawAmbient() {
+  // subtle grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.012)';
+  ctx.lineWidth = 0.5;
+  const gs = 80;
+  for (let x = 0; x < W; x += gs) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += gs) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // mouse trail glow
+  const trailGrad = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 200);
+  trailGrad.addColorStop(0, `hsla(${hueBase + 40}, 60%, 50%, 0.06)`);
+  trailGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = trailGrad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function animate() {
+  time += 0.016;
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawAmbient();
+
+  // auto-bloom from center
+  if (Math.random() < 0.015) {
+    const ax = cx + (Math.random() - 0.5) * W * 0.6;
+    const ay = cy + (Math.random() - 0.5) * H * 0.6;
+    blooms.push(createBloom(ax, ay));
+  }
+
+  // draw blooms
+  for (let i = blooms.length - 1; i >= 0; i--) {
+    const b = blooms[i];
+    b.age++;
+    const lifeRatio = 1 - b.age / b.maxAge;
+    if (lifeRatio <= 0) { blooms.splice(i, 1); continue; }
+    const growFactor = Math.min(1, b.age / 30);
+    drawBranch(b.x, b.y, b.angle, b.len * growFactor, b.depth, b.spread, b.hue, lifeRatio * 0.7);
+    // mirror
+    drawBranch(b.x, b.y, b.angle + Math.PI, b.len * growFactor * 0.7, b.depth - 1, b.spread, b.hue + 15, lifeRatio * 0.4);
+  }
+
+  // particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.02;
+    p.vx *= 0.99;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${p.life * 0.8})`;
+    ctx.fill();
+  }
+
+  // center signature
+  const sigAlpha = 0.08 + Math.sin(time * 0.5) * 0.03;
+  ctx.font = '14px monospace';
+  ctx.fillStyle = `hsla(${hueBase}, 40%, 70%, ${sigAlpha})`;
+  ctx.textAlign = 'center';
+  ctx.fillText('zoe ✶', cx, H - 50);
+
+  requestAnimationFrame(animate);
+}
+
+// initial bloom
+setTimeout(() => {
+  blooms.push(createBloom(cx, cy));
+  blooms.push(createBloom(cx - 150, cy + 80));
+  blooms.push(createBloom(cx + 130, cy - 60));
+}, 300);
+
+animate();
+</script>
+</body>
+</html>
