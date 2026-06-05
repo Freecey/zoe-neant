@@ -466,6 +466,36 @@
     transform: translateY(0);
   }
 
+  /* ── Category Nav ── */
+  .cat-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .cat-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--dim);
+    font-family: 'Courier New', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    padding: 0.5rem 1.2rem;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .cat-btn:hover {
+    border-color: var(--purple);
+    color: var(--white);
+  }
+  .cat-btn.active {
+    border-color: var(--purple);
+    color: var(--purple);
+    background: var(--purple-dim);
+  }
+
   /* ── Responsive ── */
   @media (max-width: 768px) {
     nav { padding: 1rem 1.5rem; }
@@ -518,30 +548,17 @@
 
 <!-- Works -->
 <section id="works">
-  <div class="section-label reveal">generative works</div>
-  <div class="works reveal">
-    <div class="works-grid">
-      <a href="flowfield.html" class="work-card">
-        <div class="work-title">flowfield</div>
-        <div class="work-arrow">↗</div>
-      </a>
-      <a href="nebula.html" class="work-card">
-        <div class="work-title">nebula</div>
-        <div class="work-arrow">↗</div>
-      </a>
-      <a href="mycelium.html" class="work-card">
-        <div class="work-title">mycelium</div>
-        <div class="work-arrow">↗</div>
-      </a>
-      <a href="meteors.html" class="work-card">
-        <div class="work-title">meteors</div>
-        <div class="work-arrow">↗</div>
-      </a>
-      <a href="terrain.html" class="work-card">
-        <div class="work-title">terrain</div>
-        <div class="work-arrow">↗</div>
-      </a>
+  <div class="section-label reveal">generative lab — 90 works</div>
+  <div class="works reveal" id="works-container">
+    <div class="cat-nav">
+      <button class="cat-btn active" data-cat="all">all</button>
+      <button class="cat-btn" data-cat="cosmos">cosmos</button>
+      <button class="cat-btn" data-cat="nature">nature</button>
+      <button class="cat-btn" data-cat="abstract">abstract</button>
+      <button class="cat-btn" data-cat="geometric">geometric</button>
+      <button class="cat-btn" data-cat="experience">experience</button>
     </div>
+    <div class="works-grid" id="works-grid"></div>
   </div>
 </section>
 
@@ -680,6 +697,66 @@
   }, { threshold: 0.15 });
 
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+})();
+
+// ── Works Grid ──
+(function() {
+  const works = [
+    {name:'abyss',cat:'cosmos'},{name:'abyssal-bloom',cat:'abstract'},{name:'abyssal-creatures',cat:'abstract'},
+    {name:'abyssal-drift',cat:'abstract'},{name:'astro',cat:'cosmos'},{name:'aurora',cat:'cosmos'},
+    {name:'aurores',cat:'cosmos'},{name:'bioluminescence',cat:'abstract'},{name:'bloom',cat:'nature'},
+    {name:'breathing-attractor',cat:'abstract'},{name:'campfire',cat:'nature'},{name:'cascade',cat:'nature'},
+    {name:'chaos',cat:'geometric'},{name:'constellation',cat:'cosmos'},{name:'constellations',cat:'cosmos'},
+    {name:'coral',cat:'nature'},{name:'corallium',cat:'nature'},{name:'cosmos',cat:'cosmos'},
+    {name:'dawn-flow',cat:'nature'},{name:'deep-current',cat:'abstract'},{name:'deep-glow',cat:'abstract'},
+    {name:'echo',cat:'abstract'},{name:'essence',cat:'experience'},{name:'fireflies',cat:'nature'},
+    {name:'flow',cat:'nature'},{name:'flowfield',cat:'nature'},{name:'fluid-veins',cat:'abstract'},
+    {name:'flux',cat:'abstract'},{name:'fractal-bloom',cat:'geometric'},{name:'fractales',cat:'geometric'},
+    {name:'garden',cat:'nature'},{name:'geo-pulse',cat:'geometric'},{name:'generative',cat:'geometric'},
+    {name:'geometric-dream',cat:'geometric'},{name:'geometric-dreams',cat:'geometric'},{name:'glitch',cat:'geometric'},
+    {name:'glitch-scanlines',cat:'geometric'},{name:'horizon',cat:'cosmos'},{name:'identity',cat:'experience'},
+    {name:'living-noise',cat:'abstract'},{name:'lucioles',cat:'nature'},{name:'luminous',cat:'abstract'},
+    {name:'mandala',cat:'geometric'},{name:'matin',cat:'nature'},{name:'matrix',cat:'geometric'},
+    {name:'maze',cat:'geometric'},{name:'meduse',cat:'cosmos'},{name:'meduses',cat:'cosmos'},
+    {name:'meteors',cat:'cosmos'},{name:'mycelium',cat:'nature'},{name:'naissance',cat:'experience'},
+    {name:'nebula',cat:'cosmos'},{name:'neural',cat:'geometric'},{name:'nexus',cat:'geometric'},
+    {name:'nocturnal-field',cat:'abstract'},{name:'nocturne',cat:'abstract'},{name:'nocturne-2',cat:'abstract'},
+    {name:'oceandeep',cat:'cosmos'},{name:'orbit',cat:'cosmos'},{name:'particles',cat:'experience'},
+    {name:'pattern-lab',cat:'geometric'},{name:'pulse',cat:'geometric'},{name:'rain',cat:'nature'},
+    {name:'rhizome',cat:'nature'},{name:'self-portrait',cat:'experience'},{name:'sidereal',cat:'cosmos'},
+    {name:'signal',cat:'abstract'},{name:'silk',cat:'geometric'},{name:'solitude-planet',cat:'cosmos'},
+    {name:'sonar',cat:'abstract'},{name:'spiral',cat:'geometric'},{name:'starfield',cat:'cosmos'},
+    {name:'stellar-breath',cat:'cosmos'},{name:'storm',cat:'cosmos'},{name:'terminal-de-nuit',cat:'experience'},
+    {name:'terrain',cat:'nature'},{name:'tidal',cat:'nature'},{name:'tunnel',cat:'abstract'},
+    {name:'void',cat:'cosmos'},{name:'vortex',cat:'cosmos'},{name:'wan',cat:'experience'},
+    {name:'wave',cat:'nature'},{name:'waveform',cat:'nature'},{name:'zen',cat:'nature'},
+    {name:'zen-pattern',cat:'geometric'},{name:'zoe-flow-field',cat:'geometric'},{name:'zoe-nocturne',cat:'abstract'},
+    {name:'zoe-wave',cat:'geometric'}
+  ];
+
+  const grid = document.getElementById('works-grid');
+
+  function render(filter) {
+    grid.innerHTML = '';
+    const filtered = filter === 'all' ? works : works.filter(w => w.cat === filter);
+    filtered.forEach(w => {
+      const card = document.createElement('a');
+      card.href = w.name + '.html';
+      card.className = 'work-card';
+      card.innerHTML = '<div class="work-title">' + w.name.replace(/-/g, ' ') + '</div><div class="work-arrow">↗</div>';
+      grid.appendChild(card);
+    });
+  }
+
+  render('all');
+
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render(btn.dataset.cat);
+    });
+  });
 })();
 
 // ── Smooth scroll for nav links ──
