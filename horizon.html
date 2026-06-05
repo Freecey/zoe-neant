@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoe ✶ — Horizon Generator</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+canvas {
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 0 60px rgba(0,0,0,0.5);
+}
+.info {
+  color: #555;
+  font-size: 12px;
+  margin-top: 16px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.info span { color: #888; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="info">click to regenerate — <span>zoe ✶</span></div>
+<script>
+const W = 960, H = 540;
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+// Palettes — each: sky top, sky bottom, sun, mountain layers (3), water
+const palettes = [
+  { skyT: '#1a0a2e', skyB: '#c45b8c', sun: '#ffb347', mt: ['#2d1b4e','#4a2d6e','#6b3f8e'], water: '#1a0a2e88' },
+  { skyT: '#0c1445', skyB: '#e8a87c', sun: '#fff5c3', mt: ['#1b2838','#2a3f55','#3d5a80'], water: '#0c144588' },
+  { skyT: '#2d0036', skyB: '#ff6f61', sun: '#ffe66d', mt: ['#1a0011','#3d0030','#5c0047'], water: '#2d003688' },
+  { skyT: '#0b1a2e', skyB: '#4ecdc4', sun: '#ff6b6b', mt: ['#0d2137','#1a3a5c','#2a5f8f'], water: '#0b1a2e88' },
+  { skyT: '#1a1a2e', skyB: '#e94560', sun: '#ffc947', mt: ['#16213e','#1a3a5c','#0f3460'], water: '#1a1a2e88' },
+  { skyT: '#0d0221', skyB: '#cc5de8', sun: '#ffd43b', mt: ['#150030','#2a0054','#440080'], water: '#0d022188' },
+  { skyT: '#0a1628', skyB: '#64b5f6', sun: '#fff176', mt: ['#102030','#183848','#205060'], water: '#0a162888' },
+];
+
+function rand(a, b) { return Math.random() * (b - a) + a; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function drawSky(p) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, p.skyT);
+  g.addColorStop(0.6, p.skyB);
+  g.addColorStop(1, p.skyB);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawStars() {
+  for (let i = 0; i < 120; i++) {
+    const x = rand(0, W), y = rand(0, H * 0.5);
+    const r = rand(0.3, 1.5);
+    const a = rand(0.2, 0.9);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fill();
+  }
+}
+
+function drawSun(p) {
+  const x = rand(W * 0.2, W * 0.8);
+  const y = rand(H * 0.15, H * 0.35);
+  const r = rand(30, 60);
+
+  // Glow
+  const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 5);
+  glow.addColorStop(0, p.sun + 'aa');
+  glow.addColorStop(0.3, p.sun + '33');
+  glow.addColorStop(1, p.sun + '00');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sun disc
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = p.sun;
+  ctx.fill();
+
+  return { x, y };
+}
+
+function mountainLayer(baseY, amplitude, segments, color, seed) {
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  const points = [];
+  for (let i = 0; i <= segments; i++) {
+    const x = (W / segments) * i;
+    // Multi-octave noise-ish
+    const n1 = Math.sin(seed + i * 0.8) * amplitude * 0.5;
+    const n2 = Math.sin(seed * 2.3 + i * 1.6) * amplitude * 0.3;
+    const n3 = Math.sin(seed * 4.7 + i * 3.2) * amplitude * 0.2;
+    const y = baseY - Math.abs(n1 + n2 + n3);
+    points.push({ x, y });
+  }
+  for (const p of points) ctx.lineTo(p.x, p.y);
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  return points;
+}
+
+function drawWater(sun, p) {
+  const waterY = H * rand(0.65, 0.72);
+  // Water base
+  const wg = ctx.createLinearGradient(0, waterY, 0, H);
+  wg.addColorStop(0, p.water);
+  wg.addColorStop(1, p.skyT);
+  ctx.fillStyle = wg;
+  ctx.fillRect(0, waterY, W, H - waterY);
+
+  // Sun reflection
+  const rg = ctx.createRadialGradient(sun.x, waterY + 20, 5, sun.x, waterY + 80, 150);
+  rg.addColorStop(0, p.sun + '55');
+  rg.addColorStop(1, p.sun + '00');
+  ctx.fillStyle = rg;
+  ctx.fillRect(sun.x - 150, waterY, 300, H - waterY);
+
+  // Ripple lines
+  for (let i = 0; i < 30; i++) {
+    const y = waterY + rand(5, H - waterY - 5);
+    const x = rand(0, W);
+    const w = rand(20, 120);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y + rand(-1, 1));
+    ctx.strokeStyle = `rgba(255,255,255,${rand(0.02, 0.08)})`;
+    ctx.lineWidth = rand(0.5, 1.5);
+    ctx.stroke();
+  }
+
+  return waterY;
+}
+
+function generate() {
+  const p = palettes[Math.floor(rand(0, palettes.length))];
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky(p);
+  drawStars();
+  const sun = drawSun(p);
+
+  // Mountains — 3 layers, back to front
+  const seed1 = rand(0, 100);
+  const seed2 = rand(0, 100);
+  const seed3 = rand(0, 100);
+
+  mountainLayer(H * 0.55, H * 0.25, 12, p.mt[0], seed1);
+  mountainLayer(H * 0.6, H * 0.2, 16, p.mt[1], seed2);
+  mountainLayer(H * 0.65, H * 0.15, 20, p.mt[2], seed3);
+
+  const waterY = drawWater(sun, p);
+
+  // Foreground silhouettes — trees
+  for (let i = 0; i < rand(3, 8); i++) {
+    const tx = rand(0, W);
+    const th = rand(20, 50);
+    const ty = waterY - rand(0, 10);
+    // Simple triangle tree
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - th * 0.3, ty + th);
+    ctx.lineTo(tx + th * 0.3, ty + th);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fill();
+    // Trunk
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(tx - 1.5, ty + th, 3, th * 0.3);
+  }
+
+  // Vignette
+  const vg = ctx.createRadialGradient(W/2, H/2, W * 0.25, W/2, H/2, W * 0.7);
+  vg.addColorStop(0, 'transparent');
+  vg.addColorStop(1, 'rgba(0,0,0,0.4)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+generate();
+canvas.addEventListener('click', generate);
+</script>
+</body>
+</html>
