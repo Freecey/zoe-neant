@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lueur — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 10;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1.5px solid rgba(180, 160, 255, 0.6);
+    transform: translate(-50%, -50%);
+    transition: width 0.2s, height 0.2s, border-color 0.3s;
+  }
+  #title {
+    position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Georgia', serif; font-size: 14px; letter-spacing: 6px;
+    color: rgba(180, 160, 255, 0.2); z-index: 5; pointer-events: none;
+    text-transform: uppercase;
+  }
+  #hint {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Georgia', serif; font-size: 11px; letter-spacing: 3px;
+    color: rgba(180, 160, 255, 0.15); z-index: 5; pointer-events: none;
+    transition: opacity 2s;
+  }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="title">lueur</div>
+<div id="hint">click anywhere</div>
+<canvas id="c"></canvas>
+
+<script>
+// === Perlin Noise (compact 3D) ===
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  // Fisher-Yates
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + t * (b - a);
+  const grad3 = (hash, x, y, z) => {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  };
+
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+      return lerp(
+        lerp(lerp(grad3(p[AA], x, y, z), grad3(p[BA], x-1, y, z), u),
+             lerp(grad3(p[AB], x, y-1, z), grad3(p[BB], x-1, y-1, z), u), v),
+        lerp(lerp(grad3(p[AA+1], x, y, z-1), grad3(p[BA+1], x-1, y, z-1), u),
+             lerp(grad3(p[AB+1], x, y-1, z-1), grad3(p[BB+1], x-1, y-1, z-1), u), v),
+        w
+      );
+    }
+  };
+})();
+
+// === Setup ===
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+const hintEl = document.getElementById('hint');
+
+let W, H;
+let mouseX = 0, mouseY = 0, mouseActive = false;
+let time = 0;
+
+// Ink drops and particles
+let drops = [];
+let particles = [];
+let ambientParticles = [];
+
+// Palettes — each drop picks one
+const palettes = [
+  { h: 260, s: 80, l: 60 },  // violet
+  { h: 200, s: 85, l: 55 },  // cyan-blue
+  { h: 320, s: 75, l: 55 },  // magenta
+  { h: 170, s: 80, l: 50 },  // teal
+  { h: 30, s: 90, l: 55 },   // amber
+  { h: 140, s: 75, l: 50 },  // emerald
+];
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// === Ambient particles (background dust) ===
+class AmbientParticle {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.size = 0.5 + Math.random() * 1.5;
+    this.alpha = 0.02 + Math.random() * 0.06;
+    this.speed = 0.1 + Math.random() * 0.3;
+    this.angle = Math.random() * Math.PI * 2;
+    this.drift = 0.002 + Math.random() * 0.005;
+    this.phase = Math.random() * Math.PI * 2;
+  }
+  update(t) {
+    this.angle += Noise.noise3D(this.x * 0.001, this.y * 0.001, t * 0.1) * 0.05;
+    this.x += Math.cos(this.angle) * this.speed;
+    this.y += Math.sin(this.angle) * this.speed;
+    // wrap
+    if (this.x < -10) this.x = W + 10;
+    if (this.x > W + 10) this.x = -10;
+    if (this.y < -10) this.y = H + 10;
+    if (this.y > H + 10) this.y = -10;
+  }
+  draw(ctx, t) {
+    const pulse = Math.sin(t * 2 + this.phase) * 0.02;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(180, 170, 220, ${this.alpha + pulse})`;
+    ctx.fill();
+  }
+}
+
+// === Ink Particle ===
+class InkParticle {
+  constructor(x, y, palette, generation) {
+    this.x = x;
+    this.y = y;
+    this.palette = palette;
+    this.generation = generation;
+    this.life = 1;
+    this.maxLife = 300 + Math.random() * 500;
+    this.age = 0;
+    this.size = generation === 0 ? (4 + Math.random() * 8) : (1.5 + Math.random() * 3);
+    this.hue = palette.h + (Math.random() - 0.5) * 30;
+    this.sat = palette.s + (Math.random() - 0.5) * 10;
+    this.speed = generation === 0 ? (1.5 + Math.random() * 3) : (0.5 + Math.random() * 1.5);
+    this.angle = Math.random() * Math.PI * 2;
+    this.noiseOffX = Math.random() * 1000;
+    this.noiseOffY = Math.random() * 1000;
+    this.noiseScale = 0.003 + Math.random() * 0.004;
+    this.spawnTimer = generation < 2 ? 10 + Math.floor(Math.random() * 30) : -1;
+    this.spawned = false;
+    this.trail = [];
+    this.maxTrail = generation === 0 ? 20 : (generation === 1 ? 12 : 6);
+  }
+
+  update(t) {
+    this.age++;
+    this.life = Math.max(0, 1 - this.age / this.maxLife);
+
+    // Noise-driven movement
+    const n = Noise.noise3D(
+      this.x * this.noiseScale + this.noiseOffX,
+      this.y * this.noiseScale + this.noiseOffY,
+      t * 0.3
+    );
+    this.angle = n * Math.PI * 4;
+
+    // Slow down over time
+    const decay = Math.pow(this.life, 0.5);
+    const spd = this.speed * decay;
+
+    const prevX = this.x, prevY = this.y;
+    this.x += Math.cos(this.angle) * spd;
+    this.y += Math.sin(this.angle) * spd;
+
+    // Trail
+    this.trail.push({ x: prevX, y: prevY });
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+
+    // Spawn children
+    if (this.spawnTimer > 0) {
+      this.spawnTimer--;
+      if (this.spawnTimer <= 0 && !this.spawned && particles.length < 5000) {
+        this.spawned = true;
+        const count = 3 + Math.floor(Math.random() * 5);
+        for (let i = 0; i < count; i++) {
+          particles.push(new InkParticle(this.x, this.y, this.palette, this.generation + 1));
+        }
+      }
+    }
+
+    return this.life > 0;
+  }
+
+  draw(ctx) {
+    const alpha = this.life * (this.generation === 0 ? 0.5 : this.generation === 1 ? 0.3 : 0.2);
+    const hShift = Math.sin(this.age * 0.02) * 15;
+    const h = this.hue + hShift;
+
+    // Trail
+    if (this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.lineTo(this.x, this.y);
+      ctx.strokeStyle = `hsla(${h}, ${this.sat}%, ${this.palette.l}%, ${alpha * 0.4})`;
+      ctx.lineWidth = this.size * 0.5 * this.life;
+      ctx.stroke();
+    }
+
+    // Glow
+    const glowR = this.size * 3 * this.life;
+    if (glowR > 0.5) {
+      const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR);
+      g.addColorStop(0, `hsla(${h}, ${this.sat}%, ${this.palette.l + 20}%, ${alpha * 0.3})`);
+      g.addColorStop(1, `hsla(${h}, ${this.sat}%, ${this.palette.l}%, 0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(this.x - glowR, this.y - glowR, glowR * 2, glowR * 2);
+    }
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${h}, ${this.sat}%, ${this.palette.l + 15}%, ${alpha})`;
+    ctx.fill();
+  }
+}
+
+// === Ink Drop (initial splash) ===
+class InkDrop {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.palette = palettes[Math.floor(Math.random() * palettes.length)];
+    this.splashRadius = 0;
+    this.maxRadius = 60 + Math.random() * 80;
+    this.phase = 0; // 0 = splash, 1 = spawn particles, 2 = done
+    this.age = 0;
+    this.splashParticles = [];
+
+    // Create splash ring particles
+    const count = 30 + Math.floor(Math.random() * 20);
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.2;
+      this.splashParticles.push({
+        angle,
+        speed: 2 + Math.random() * 4,
+        size: 1 + Math.random() * 2,
+        dist: 0
+      });
+    }
+  }
+
+  update(t) {
+    this.age++;
+
+    if (this.phase === 0) {
+      // Expand splash
+      this.splashRadius += (this.maxRadius - this.splashRadius) * 0.08;
+      this.splashParticles.forEach(p => {
+        p.dist += p.speed;
+        p.speed *= 0.96;
+      });
+
+      if (this.splashRadius > this.maxRadius * 0.7) {
+        this.phase = 1;
+      }
+    }
+
+    if (this.phase === 1) {
+      // Spawn ink particles
+      const count = 8 + Math.floor(Math.random() * 8);
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * this.maxRadius * 0.3;
+        particles.push(new InkParticle(
+          this.x + Math.cos(angle) * dist,
+          this.y + Math.sin(angle) * dist,
+          this.palette,
+          0
+        ));
+      }
+      this.phase = 2;
+    }
+
+    return this.phase !== 2;
+  }
+
+  draw(ctx) {
+    const alpha = Math.max(0, 1 - this.splashRadius / this.maxRadius);
+    const h = this.palette.h;
+
+    // Central glow
+    const gr = this.splashRadius * 0.6;
+    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, gr);
+    g.addColorStop(0, `hsla(${h}, ${this.palette.s}%, ${this.palette.l + 20}%, ${alpha * 0.4})`);
+    g.addColorStop(0.5, `hsla(${h}, ${this.palette.s}%, ${this.palette.l}%, ${alpha * 0.15})`);
+    g.addColorStop(1, `hsla(${h}, ${this.palette.s}%, ${this.palette.l}%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(this.x - gr, this.y - gr, gr * 2, gr * 2);
+
+    // Ring
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.splashRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = `hsla(${h}, ${this.palette.s}%, ${this.palette.l + 10}%, ${alpha * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Splash particles
+    this.splashParticles.forEach(p => {
+      const px = this.x + Math.cos(p.angle) * p.dist;
+      const py = this.y + Math.sin(p.angle) * p.dist;
+      const pAlpha = alpha * (1 - p.dist / (this.maxRadius * 2));
+      if (pAlpha > 0) {
+        ctx.beginPath();
+        ctx.arc(px, py, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${h}, ${this.palette.s}%, ${this.palette.l + 15}%, ${pAlpha})`;
+        ctx.fill();
+      }
+    });
+  }
+}
+
+// === Mouse / Touch ===
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+  mouseActive = true;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouseX = e.touches[0].clientX;
+  mouseY = e.touches[0].clientY;
+  mouseActive = true;
+}, { passive: false });
+
+function addDrop(x, y) {
+  drops.push(new InkDrop(x, y));
+  hintEl.style.opacity = '0';
+}
+
+canvas.addEventListener('click', e => addDrop(e.clientX, e.clientY));
+canvas.addEventListener('touchstart', e => {
+  addDrop(e.touches[0].clientX, e.touches[0].clientY);
+});
+
+// === Init ambient ===
+for (let i = 0; i < 120; i++) {
+  ambientParticles.push(new AmbientParticle());
+}
+
+// === Auto-drop on load for immediate visual ===
+setTimeout(() => addDrop(W * 0.5, H * 0.5), 500);
+setTimeout(() => addDrop(W * 0.35, H * 0.4), 2500);
+setTimeout(() => addDrop(W * 0.65, H * 0.6), 4500);
+
+// === Render Loop ===
+function animate() {
+  time += 0.016;
+
+  // Fade — very slow for trails
+  ctx.fillStyle = 'rgba(0, 0, 2, 0.03)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient particles (source-over)
+  ambientParticles.forEach(p => {
+    p.update(time);
+    p.draw(ctx, time);
+  });
+
+  // Drops (additive)
+  ctx.globalCompositeOperation = 'lighter';
+
+  drops = drops.filter(d => {
+    const alive = d.update(time);
+    if (alive) d.draw(ctx);
+    return alive;
+  });
+
+  particles = particles.filter(p => {
+    const alive = p.update(time);
+    if (alive) p.draw(ctx);
+    return alive;
+  });
+
+  // Cap particles
+  if (particles.length > 5000) {
+    particles.splice(0, particles.length - 5000);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
