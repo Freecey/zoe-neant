@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ruche — Zoe ✶</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0800; overflow: hidden; cursor: none; }
+canvas { display: block; }
+#cursor {
+  position: fixed; pointer-events: none; z-index: 100;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,200,50,0.8), rgba(255,150,0,0.2), transparent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 15px rgba(255,180,30,0.5);
+}
+#title {
+  position: fixed; top: 20px; width: 100%; text-align: center;
+  font-family: Georgia, serif; font-size: 14px; letter-spacing: 4px;
+  color: rgba(255, 200, 80, 0.15); pointer-events: none; z-index: 10;
+  text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="title">ruche</div>
+<canvas id="c"></canvas>
+<script>
+// === Perlin Noise (self-contained) ===
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  let seed = 42;
+  for (let i = 255; i > 0; i--) {
+    seed = (seed * 16807 + 11) % 2147483647;
+    const j = seed % (i + 1);
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + t * (b - a);
+  const grad3 = (hash, x, y, z) => {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  };
+  return {
+    noise3D(x, y, z) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+      x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+      const u = fade(x), v = fade(y), w = fade(z);
+      const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+      const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+      return lerp(
+        lerp(lerp(grad3(p[AA], x, y, z), grad3(p[BA], x - 1, y, z), u),
+             lerp(grad3(p[AB], x, y - 1, z), grad3(p[BB], x - 1, y - 1, z), u), v),
+        lerp(lerp(grad3(p[AA + 1], x, y, z - 1), grad3(p[BA + 1], x - 1, y, z - 1), u),
+             lerp(grad3(p[AB + 1], x, y - 1, z - 1), grad3(p[BB + 1], x - 1, y - 1, z - 1), u), v), w
+      );
+    },
+    noise2D(x, y) { return this.noise3D(x, y, 0); }
+  };
+})();
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+let W, H;
+let mouseX = -1000, mouseY = -1000;
+let time = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  buildHive();
+}
+
+// === Hex Grid ===
+const HEX_SIZE = 28;
+let cells = [];
+let bees = [];
+let honeyDrops = [];
+let queenPos = { x: 0, y: 0 };
+
+function hexCorner(cx, cy, size, i) {
+  const angle = Math.PI / 180 * (60 * i - 30);
+  return { x: cx + size * Math.cos(angle), y: cy + size * Math.sin(angle) };
+}
+
+function buildHive() {
+  cells = [];
+  const sqrt3 = Math.sqrt(3);
+  const horizDist = sqrt3 * HEX_SIZE;
+  const vertDist = HEX_SIZE * 1.5;
+  const cols = Math.ceil(W / horizDist) + 2;
+  const rows = Math.ceil(H / vertDist) + 2;
+  const centerX = W / 2;
+  const centerY = H / 2;
+  const maxDist = Math.min(W, H) * 0.45;
+
+  for (let row = -1; row < rows; row++) {
+    for (let col = -1; col < cols; col++) {
+      const x = col * horizDist + (row % 2) * horizDist / 2;
+      const y = row * vertDist;
+      const dist = Math.hypot(x - centerX, y - centerY);
+      if (dist < maxDist) {
+        const honey = Math.max(0, 1 - dist / maxDist) * (0.3 + Math.random() * 0.7);
+        cells.push({
+          x, y, dist,
+          honey: honey,
+          maxHoney: honey,
+          pulse: Math.random() * Math.PI * 2,
+          isQueen: false
+        });
+      }
+    }
+  }
+
+  // Queen at center
+  let closest = cells[0];
+  let closestDist = Infinity;
+  for (const c of cells) {
+    const d = Math.hypot(c.x - centerX, c.y - centerY);
+    if (d < closestDist) { closestDist = d; closest = c; }
+  }
+  closest.isQueen = true;
+  closest.honey = 1;
+  closest.maxHoney = 1;
+  queenPos = { x: closest.x, y: closest.y };
+
+  // Spawn bees
+  bees = [];
+  const beeCount = Math.min(60, Math.floor(cells.length * 0.15));
+  for (let i = 0; i < beeCount; i++) {
+    const homeCell = cells[Math.floor(Math.random() * cells.length)];
+    bees.push({
+      x: homeCell.x + (Math.random() - 0.5) * 20,
+      y: homeCell.y + (Math.random() - 0.5) * 20,
+      vx: 0, vy: 0,
+      targetCell: null,
+      homeCell: homeCell,
+      wingPhase: Math.random() * Math.PI * 2,
+      size: 3 + Math.random() * 2,
+      carrying: false,
+      waitTimer: 0,
+      trail: []
+    });
+  }
+}
+
+// === Drawing ===
+function drawHex(cell, t) {
+  const { x, y, honey, maxHoney, pulse, isQueen } = cell;
+  const pulseVal = Math.sin(pulse + t * 1.5) * 0.15 + 0.85;
+  const honeyLevel = honey / Math.max(0.01, maxHoney);
+  const mouseDist = Math.hypot(x - mouseX, y - mouseY);
+  const mouseInfluence = Math.max(0, 1 - mouseDist / 120) * 0.3;
+
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const c = hexCorner(x, y, HEX_SIZE * 0.95, i);
+    if (i === 0) ctx.moveTo(c.x, c.y);
+    else ctx.lineTo(c.x, c.y);
+  }
+  ctx.closePath();
+
+  // Cell fill — dark wax
+  const baseBrightness = 12 + honeyLevel * 25 + mouseInfluence * 40;
+  const waxHue = 35 + honeyLevel * 10;
+  ctx.fillStyle = `hsl(${waxHue}, ${30 + honeyLevel * 40}%, ${baseBrightness * pulseVal}%)`;
+  ctx.fill();
+
+  // Cell border
+  ctx.strokeStyle = `hsla(40, ${40 + honeyLevel * 30}%, ${20 + honeyLevel * 15}%, ${0.4 + mouseInfluence})`;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Honey glow inside
+  if (honeyLevel > 0.1) {
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, HEX_SIZE * 0.7 * honeyLevel);
+    const alpha = honeyLevel * 0.25 * pulseVal + mouseInfluence * 0.15;
+    grad.addColorStop(0, `hsla(45, 90%, 60%, ${Math.min(alpha, 0.6)})`);
+    grad.addColorStop(0.6, `hsla(38, 80%, 45%, ${Math.min(alpha * 0.4, 0.3)})`);
+    grad.addColorStop(1, `hsla(35, 70%, 30%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const c = hexCorner(x, y, HEX_SIZE * 0.7, i);
+      if (i === 0) ctx.moveTo(c.x, c.y);
+      else ctx.lineTo(c.x, c.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Queen cell glow
+  if (isQueen) {
+    const qPulse = Math.sin(t * 2) * 0.2 + 0.8;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, HEX_SIZE * 1.2);
+    grad.addColorStop(0, `hsla(50, 100%, 70%, ${0.2 * qPulse})`);
+    grad.addColorStop(0.5, `hsla(40, 90%, 50%, ${0.08 * qPulse})`);
+    grad.addColorStop(1, `hsla(35, 80%, 40%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, HEX_SIZE * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawBee(bee, t) {
+  const { x, y, size, wingPhase, carrying } = bee;
+  const wingFlap = Math.sin(wingPhase + t * 35) * 0.5;
+
+  // Trail
+  if (bee.trail.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(bee.trail[0].x, bee.trail[0].y);
+    for (let i = 1; i < bee.trail.length; i++) {
+      ctx.lineTo(bee.trail[i].x, bee.trail[i].y);
+    }
+    const trailAlpha = carrying ? 0.15 : 0.06;
+    ctx.strokeStyle = `hsla(45, 90%, 60%, ${trailAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Glow
+  const glowAlpha = carrying ? 0.2 : 0.08;
+  const grad = ctx.createRadialGradient(x, y, 0, x, y, size * 4);
+  grad.addColorStop(0, `hsla(45, 100%, 70%, ${glowAlpha})`);
+  grad.addColorStop(1, `hsla(45, 100%, 50%, 0)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, size * 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wings
+  ctx.fillStyle = `hsla(50, 30%, 80%, ${0.3 + wingFlap * 0.15})`;
+  ctx.beginPath();
+  ctx.ellipse(x - size * 0.3, y - size * 0.5 + wingFlap * 3, size * 0.9, size * 0.45, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + size * 0.3, y - size * 0.5 + wingFlap * 3, size * 0.9, size * 0.45, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = `hsl(42, 85%, ${carrying ? 55 : 45}%)`;
+  ctx.beginPath();
+  ctx.ellipse(x, y, size * 0.6, size, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Stripes
+  ctx.fillStyle = '#1a1000';
+  for (let s = -1; s <= 1; s++) {
+    ctx.fillRect(x - size * 0.55, y + s * size * 0.35 - 1, size * 1.1, 2);
+  }
+
+  // Pollen indicator
+  if (carrying) {
+    ctx.fillStyle = `hsla(48, 100%, 65%, 0.7)`;
+    ctx.beginPath();
+    ctx.arc(x, y + size * 0.3, size * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function updateBee(bee, t) {
+  if (bee.waitTimer > 0) {
+    bee.waitTimer--;
+    bee.wingPhase += 0.3;
+    return;
+  }
+
+  // Pick a new target if needed
+  if (!bee.targetCell || Math.random() < 0.005) {
+    // Prefer cells with honey, or wander
+    if (bee.carrying) {
+      // Go back home or to queen
+      bee.targetCell = Math.random() < 0.3 ? cells.find(c => c.isQueen) || bee.homeCell : bee.homeCell;
+    } else {
+      // Go to a cell with honey
+      const honeyCells = cells.filter(c => c.honey > 0.2 && !c.isQueen);
+      if (honeyCells.length > 0 && Math.random() < 0.7) {
+        bee.targetCell = honeyCells[Math.floor(Math.random() * honeyCells.length)];
+      } else {
+        bee.targetCell = cells[Math.floor(Math.random() * cells.length)];
+      }
+    }
+  }
+
+  if (bee.targetCell) {
+    const dx = bee.targetCell.x - bee.x;
+    const dy = bee.targetCell.y - bee.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 5) {
+      // Arrived
+      if (!bee.carrying && bee.targetCell.honey > 0.1 && !bee.targetCell.isQueen) {
+        bee.carrying = true;
+        bee.targetCell.honey *= 0.7;
+      } else if (bee.carrying) {
+        bee.carrying = false;
+        // Deposit honey near queen
+        if (bee.targetCell.isQueen || bee.targetCell === bee.homeCell) {
+          bee.homeCell.honey = Math.min(bee.homeCell.maxHoney, bee.homeCell.honey + 0.05);
+        }
+      }
+      bee.waitTimer = 15 + Math.floor(Math.random() * 30);
+      bee.targetCell = null;
+    } else {
+      // Move toward target with noise
+      const noiseAngle = Noise.noise3D(bee.x * 0.005, bee.y * 0.005, t * 0.5) * 1.5;
+      const targetAngle = Math.atan2(dy, dx);
+      const speed = 1.8 + Math.random() * 0.5;
+      bee.vx += (Math.cos(targetAngle + noiseAngle) * speed - bee.vx) * 0.08;
+      bee.vy += (Math.sin(targetAngle + noiseAngle) * speed - bee.vy) * 0.08;
+    }
+  }
+
+  // Mouse influence — gentle attraction
+  const mDx = mouseX - bee.x;
+  const mDy = mouseY - bee.y;
+  const mDist = Math.hypot(mDx, mDy);
+  if (mDist < 200 && mDist > 20) {
+    bee.vx += (mDx / mDist) * 0.15;
+    bee.vy += (mDy / mDist) * 0.15;
+  } else if (mDist <= 20) {
+    bee.vx -= (mDx / mDist) * 0.5;
+    bee.vy -= (mDy / mDist) * 0.5;
+  }
+
+  bee.x += bee.vx;
+  bee.y += bee.vy;
+  bee.vx *= 0.92;
+  bee.vy *= 0.92;
+
+  // Trail
+  bee.trail.push({ x: bee.x, y: bee.y });
+  if (bee.trail.length > 15) bee.trail.shift();
+}
+
+// === Honey drops (dripping effect) ===
+function spawnHoneyDrop() {
+  const honeyCells = cells.filter(c => c.honey > 0.5);
+  if (honeyCells.length === 0) return;
+  const cell = honeyCells[Math.floor(Math.random() * honeyCells.length)];
+  honeyDrops.push({
+    x: cell.x + (Math.random() - 0.5) * HEX_SIZE,
+    y: cell.y,
+    vy: 0.3 + Math.random() * 0.5,
+    life: 1,
+    size: 2 + Math.random() * 3
+  });
+}
+
+function updateAndDrawDrops() {
+  for (let i = honeyDrops.length - 1; i >= 0; i--) {
+    const d = honeyDrops[i];
+    d.y += d.vy;
+    d.vy += 0.02;
+    d.life -= 0.008;
+    if (d.life <= 0) { honeyDrops.splice(i, 1); continue; }
+
+    const alpha = d.life * 0.6;
+    const grad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.size * 3);
+    grad.addColorStop(0, `hsla(42, 90%, 55%, ${alpha})`);
+    grad.addColorStop(1, `hsla(38, 80%, 40%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, Math.min(d.size * 3, 12), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `hsla(45, 95%, 60%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, Math.min(d.size, 5), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// === Background glow orbs ===
+const glowOrbs = [];
+for (let i = 0; i < 40; i++) {
+  glowOrbs.push({
+    x: Math.random() * 2000,
+    y: Math.random() * 2000,
+    vx: (Math.random() - 0.5) * 0.2,
+    vy: (Math.random() - 0.5) * 0.2,
+    radius: 40 + Math.random() * 80,
+    hue: 30 + Math.random() * 30,
+    alpha: 0.008 + Math.random() * 0.015,
+    pulse: Math.random() * Math.PI * 2
+  });
+}
+
+function drawGlowOrbs(t) {
+  ctx.globalCompositeOperation = 'screen';
+  for (const orb of glowOrbs) {
+    orb.x += orb.vx;
+    orb.y += orb.vy;
+    orb.pulse += 0.008;
+    if (orb.x < -100) orb.x = W + 100;
+    if (orb.x > W + 100) orb.x = -100;
+    if (orb.y < -100) orb.y = H + 100;
+    if (orb.y > H + 100) orb.y = -100;
+
+    const r = orb.radius + Math.sin(orb.pulse) * 15;
+    const a = orb.alpha + Math.sin(orb.pulse) * 0.004;
+    const g = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, Math.min(r, 120));
+    g.addColorStop(0, `hsla(${orb.hue}, 80%, 50%, ${a})`);
+    g.addColorStop(1, `hsla(${orb.hue}, 80%, 50%, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(orb.x - Math.min(r, 120), orb.y - Math.min(r, 120), Math.min(r, 120) * 2, Math.min(r, 120) * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// === Vignette ===
+function drawVignette() {
+  const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+  grad.addColorStop(0, 'transparent');
+  grad.addColorStop(1, 'rgba(5, 3, 0, 0.6)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// === Main Loop ===
+let dropTimer = 0;
+
+function animate() {
+  time += 0.016;
+
+  // Background
+  ctx.fillStyle = '#080600';
+  ctx.fillRect(0, 0, W, H);
+
+  // Glow orbs (background atmosphere)
+  drawGlowOrbs(time);
+
+  // Draw cells
+  for (const cell of cells) {
+    // Slowly regenerate honey
+    if (cell.honey < cell.maxHoney) {
+      cell.honey += 0.0002;
+    }
+    drawHex(cell, time);
+  }
+
+  // Honey drops
+  dropTimer++;
+  if (dropTimer > 60) {
+    dropTimer = 0;
+    if (Math.random() < 0.4) spawnHoneyDrop();
+  }
+  updateAndDrawDrops();
+
+  // Bees
+  ctx.globalCompositeOperation = 'lighter';
+  for (const bee of bees) {
+    updateBee(bee, time);
+    drawBee(bee, time);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Vignette
+  drawVignette();
+
+  requestAnimationFrame(animate);
+}
+
+// === Events ===
+window.addEventListener('resize', resize);
+window.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouseX = e.touches[0].clientX;
+  mouseY = e.touches[0].clientY;
+  cursorEl.style.left = mouseX + 'px';
+  cursorEl.style.top = mouseY + 'px';
+}, { passive: false });
+window.addEventListener('mouseleave', () => {
+  mouseX = -1000;
+  mouseY = -1000;
+});
+
+// Click — spawn burst of bees from that point
+canvas.addEventListener('click', e => {
+  for (let i = 0; i < 5; i++) {
+    const nearby = cells[Math.floor(Math.random() * cells.length)];
+    bees.push({
+      x: e.clientX + (Math.random() - 0.5) * 30,
+      y: e.clientY + (Math.random() - 0.5) * 30,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      targetCell: nearby,
+      homeCell: nearby,
+      wingPhase: Math.random() * Math.PI * 2,
+      size: 3 + Math.random() * 2,
+      carrying: Math.random() < 0.5,
+      waitTimer: 0,
+      trail: []
+    });
+  }
+  // Keep bee count reasonable
+  while (bees.length > 120) bees.shift();
+
+  // Honey splash on nearby cells
+  for (const cell of cells) {
+    if (Math.hypot(cell.x - e.clientX, cell.y - e.clientY) < 80) {
+      cell.honey = Math.min(cell.maxHoney, cell.honey + 0.2);
+    }
+  }
+});
+
+resize();
+animate();
+</script>
+</body>
+</html>
