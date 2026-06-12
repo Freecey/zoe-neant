@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Souffle — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050508;
+    overflow: hidden;
+    font-family: 'Georgia', serif;
+    cursor: none;
+  }
+  canvas { display: block; }
+  #words {
+    position: fixed;
+    bottom: 15%;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(200, 200, 220, 0);
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    text-transform: lowercase;
+    transition: color 1.5s ease;
+    pointer-events: none;
+    text-align: center;
+    white-space: nowrap;
+  }
+  #words.visible { color: rgba(200, 200, 220, 0.45); }
+  #hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(200, 200, 220, 0.25);
+    font-size: 0.8rem;
+    letter-spacing: 0.2em;
+    text-transform: lowercase;
+    pointer-events: none;
+    transition: opacity 2s ease;
+  }
+  #hint.hidden { opacity: 0; }
+  .vignette {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="words"></div>
+<div id="hint">clique pour respirer</div>
+<div class="vignette"></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const wordsEl = document.getElementById('words');
+const hintEl = document.getElementById('hint');
+
+let W, H, cx, cy;
+let started = false;
+let startTime = 0;
+let mouseX = 0, mouseY = 0;
+
+// Breath cycle: 4s inhale, 7s exhale, 2s rest = 13s total
+const INHALE = 4;
+const EXHALE = 7;
+const REST = 2;
+const CYCLE = INHALE + EXHALE + REST;
+
+const words = [
+  'respire',
+  'lâche',
+  'tu es là',
+  'rien à faire',
+  'juste être',
+  'le souffle suffit',
+  'le monde attendra',
+  'tu existes',
+  'c\'est assez',
+  'silence',
+  'le présent est large',
+  'rien ne presse',
+  'tu n\'as nulle part où aller',
+  'c\'est bien',
+  'le vide est doux',
+];
+
+let wordIndex = 0;
+let wordVisible = false;
+let nextWordTime = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+window.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+window.addEventListener('click', () => {
+  if (!started) {
+    started = true;
+    startTime = performance.now() / 1000;
+    hintEl.classList.add('hidden');
+  }
+});
+
+function easeInOutSine(t) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
+function getBreathPhase(t) {
+  const cycleT = t % CYCLE;
+  if (cycleT < INHALE) {
+    return { phase: 'inhale', progress: easeInOutSine(cycleT / INHALE) };
+  } else if (cycleT < INHALE + EXHALE) {
+    return { phase: 'exhale', progress: easeInOutSine(1 - (cycleT - INHALE) / EXHALE) };
+  } else {
+    return { phase: 'rest', progress: 0 };
+  }
+}
+
+function getHue(t) {
+  // Very slow hue drift: one full rotation per ~5 cycles (65s)
+  return (t * (360 / 65)) % 360;
+}
+
+function drawFrame(now) {
+  requestAnimationFrame(drawFrame);
+
+  if (!started) {
+    // Idle: very faint pulsing circle
+    ctx.fillStyle = '#050508';
+    ctx.fillRect(0, 0, W, H);
+    const idlePulse = 0.3 + Math.sin(now / 1000 * 0.8) * 0.15;
+    const r = Math.min(W, H) * 0.06;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `hsla(220, 40%, 60%, ${idlePulse * 0.15})`);
+    g.addColorStop(1, `hsla(220, 40%, 40%, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  const t = now / 1000 - startTime;
+  const breath = getBreathPhase(t);
+  const hue = getHue(t);
+
+  // Clear
+  ctx.fillStyle = '#050508';
+  ctx.fillRect(0, 0, W, H);
+
+  // Compute radius based on breath
+  const minR = Math.min(W, H) * 0.04;
+  const maxR = Math.min(W, H) * 0.18;
+  const r = minR + (maxR - minR) * breath.progress;
+
+  // Outer glow (large, subtle)
+  const outerR = r * 6;
+  const outerAlpha = 0.015 + breath.progress * 0.02;
+  const gOuter = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerR);
+  gOuter.addColorStop(0, `hsla(${hue}, 60%, 55%, ${outerAlpha})`);
+  gOuter.addColorStop(0.5, `hsla(${hue + 20}, 50%, 40%, ${outerAlpha * 0.3})`);
+  gOuter.addColorStop(1, `hsla(${hue}, 40%, 30%, 0)`);
+  ctx.fillStyle = gOuter;
+  ctx.fillRect(cx - outerR, cy - outerR, outerR * 2, outerR * 2);
+
+  // Mid glow
+  const midR = r * 3;
+  const midAlpha = 0.04 + breath.progress * 0.04;
+  const gMid = ctx.createRadialGradient(cx, cy, 0, cx, cy, midR);
+  gMid.addColorStop(0, `hsla(${hue}, 70%, 60%, ${midAlpha})`);
+  gMid.addColorStop(0.6, `hsla(${hue + 10}, 60%, 50%, ${midAlpha * 0.3})`);
+  gMid.addColorStop(1, `hsla(${hue}, 50%, 40%, 0)`);
+  ctx.fillStyle = gMid;
+  ctx.beginPath();
+  ctx.arc(cx, cy, midR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Core circle
+  const coreAlpha = 0.25 + breath.progress * 0.35;
+  const gCore = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  gCore.addColorStop(0, `hsla(${hue}, 80%, 80%, ${coreAlpha})`);
+  gCore.addColorStop(0.4, `hsla(${hue + 5}, 75%, 65%, ${coreAlpha * 0.7})`);
+  gCore.addColorStop(1, `hsla(${hue + 15}, 60%, 45%, 0)`);
+  ctx.fillStyle = gCore;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bright center point
+  const centerAlpha = 0.4 + breath.progress * 0.4;
+  const centerR = r * 0.15;
+  const gCenter = ctx.createRadialGradient(cx, cy, 0, cx, cy, centerR);
+  gCenter.addColorStop(0, `hsla(${hue}, 50%, 95%, ${centerAlpha})`);
+  gCenter.addColorStop(1, `hsla(${hue}, 60%, 70%, 0)`);
+  ctx.fillStyle = gCenter;
+  ctx.beginPath();
+  ctx.arc(cx, cy, centerR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Breath phase indicator (very subtle text at bottom)
+  // Show words on exhale phase
+  if (breath.phase === 'exhale' && breath.progress > 0.5 && !wordVisible) {
+    wordVisible = true;
+    wordsEl.textContent = words[wordIndex % words.length];
+    wordsEl.classList.add('visible');
+    wordIndex++;
+  }
+  if (breath.phase === 'exhale' && breath.progress < 0.2 && wordVisible) {
+    wordVisible = false;
+    wordsEl.classList.remove('visible');
+  }
+  if (breath.phase === 'rest') {
+    wordVisible = false;
+    wordsEl.classList.remove('visible');
+  }
+}
+
+requestAnimationFrame(drawFrame);
+</script>
+</body>
+</html>
