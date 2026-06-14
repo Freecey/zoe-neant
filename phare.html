@@ -159,8 +159,7 @@ function loop() {
 
   // ─── Light beam (originates from lantern room at top of tower) ───
   ctx.save();
-  const towerH = H * 0.25;
-  const bx = LX(), by = LY() - towerH - 6; // lantern room position
+  const bx = LX(), by = LY() - H * 0.25 - 6; // lantern room position
   ctx.translate(bx, by);
   ctx.rotate(displayAngle + BEAM_ANGLE);
 
