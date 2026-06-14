@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>✶ Attracteur — Zoe</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #030308; cursor: none; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+
+  #title {
+    position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
+    font-family: 'Georgia', serif; font-size: 14px; letter-spacing: 8px;
+    color: rgba(180, 200, 255, 0.25); text-transform: uppercase;
+    pointer-events: none; z-index: 10; text-shadow: 0 0 20px rgba(100,150,255,0.3);
+  }
+
+  #info {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Courier New', monospace; font-size: 11px;
+    color: rgba(140, 160, 220, 0.35); pointer-events: none; z-index: 10;
+    letter-spacing: 1px; text-align: center; line-height: 1.6;
+  }
+
+  #cursor {
+    position: fixed; width: 12px; height: 12px;
+    border: 1px solid rgba(160, 190, 255, 0.5); border-radius: 50%;
+    pointer-events: none; z-index: 20;
+    transition: width 0.15s, height 0.15s, border-color 0.15s;
+    box-shadow: 0 0 12px rgba(100, 150, 255, 0.3);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="title">Attracteur Étrange</div>
+<div id="info">
+  De Jong · Clifford · Svensson<br>
+  bouge pour métamorphoser · clique pour renaître
+</div>
+<div id="cursor"></div>
+
+<script>
+// ============================================================
+//  ATTRACTEUR ÉTRANGE — Zoe ✶
+//  De Jong / Clifford / Svensson attractors with
+//  density-mapped color, parametric morphing, mouse control
+// ============================================================
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+
+let W, H, cx, cy, scale;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+  scale = Math.min(W, H) * 0.35;
+}
+resize();
+
+window.addEventListener('resize', () => { resize(); needsClear = true; });
+
+// --- Perlin-like noise (simplified) ---
+function noise(x, y) {
+  return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+}
+
+// --- Attractor types ---
+const TYPES = ['dejong', 'clifford', 'svensson'];
+let typeIndex = 0;
+
+// --- Parameters (morphed over time + mouse) ---
+let params = { a: -2.0, b: -2.0, c: -1.2, d: 2.0 };
+let targetParams = { ...params };
+let mouseInfluence = { x: 0.5, y: 0.5 };
+let mouseSmooth = { x: 0.5, y: 0.5 };
+
+// --- Iteration state ---
+let px = 0.1, py = 0.1;
+let iterCount = 0;
+const POINTS_PER_FRAME = 20000;
+const MAX_POINTS = 600000;
+
+// --- Density grid for color mapping ---
+const GRID_SIZE = 2; // pixel block size for density
+let gridW, gridH, density;
+
+function initGrid() {
+  gridW = Math.ceil(W / GRID_SIZE);
+  gridH = Math.ceil(H / GRID_SIZE);
+  density = new Float32Array(gridW * gridH);
+}
+initGrid();
+
+let needsClear = true;
+let frameTime = 0;
+let morphTimer = 0;
+let nextMorph = 600 + Math.random() * 600;
+
+// --- Attractor functions ---
+function dejong(x, y, p) {
+  return {
+    x: Math.sin(p.a * y) - Math.cos(p.b * x),
+    y: Math.sin(p.c * x) - Math.cos(p.d * y)
+  };
+}
+
+function clifford(x, y, p) {
+  return {
+    x: Math.sin(p.a * y) + p.c * Math.cos(p.a * x),
+    y: Math.sin(p.b * x) + p.d * Math.cos(p.b * y)
+  };
+}
+
+function svensson(x, y, p) {
+  return {
+    x: p.d * Math.sin(p.a * x) - Math.sin(p.b * y),
+    y: p.c * Math.cos(p.a * x) + Math.cos(p.b * y)
+  };
+}
+
+function attract(x, y, p) {
+  switch (TYPES[typeIndex]) {
+    case 'dejong':   return dejong(x, y, p);
+    case 'clifford': return clifford(x, y, p);
+    case 'svensson': return svensson(x, y, p);
+  }
+}
+
+// --- Generate new random target parameters ---
+function newTarget() {
+  typeIndex = (typeIndex + 1) % TYPES.length;
+  // Parameters in ranges that produce interesting patterns
+  const range = 3.0;
+  targetParams = {
+    a: (Math.random() - 0.5) * range * 2,
+    b: (Math.random() - 0.5) * range * 2,
+    c: (Math.random() - 0.5) * range * 2,
+    d: (Math.random() - 0.5) * range * 2
+  };
+  // Ensure not too close to zero (boring)
+  ['a','b','c','d'].forEach(k => {
+    if (Math.abs(targetParams[k]) < 0.3) targetParams[k] = Math.sign(targetParams[k] || 1) * (0.3 + Math.random() * 0.5);
+  });
+}
+
+// --- Color palette: shift hue slowly over time ---
+function getColor(densityVal, totalIters) {
+  // Base hue drifts: violet → blue → cyan → magenta cycle
+  const baseHue = 250 + Math.sin(frameTime * 0.003) * 60;
+  // Density maps to lightness and saturation
+  const norm = Math.min(1, densityVal / 8);
+  const hue = baseHue + norm * 40;
+  const sat = 70 + norm * 30;
+  const light = 35 + norm * 45;
+  const alpha = 0.04 + norm * 0.35;
+  return `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+}
+
+// --- Mouse tracking ---
+window.addEventListener('mousemove', (e) => {
+  mouseInfluence.x = e.clientX / W;
+  mouseInfluence.y = e.clientY / H;
+  cursor.style.left = (e.clientX - 6) + 'px';
+  cursor.style.top = (e.clientY - 6) + 'px';
+});
+
+// Click: reseed attractor with new parameters
+window.addEventListener('click', () => {
+  newTarget();
+  needsClear = true;
+  px = Math.random() * 0.4 - 0.2;
+  py = Math.random() * 0.4 - 0.2;
+});
+
+// Touch support
+window.addEventListener('touchmove', (e) => {
+  if (e.touches[0]) {
+    mouseInfluence.x = e.touches[0].clientX / W;
+    mouseInfluence.y = e.touches[0].clientY / H;
+  }
+}, { passive: true });
+
+window.addEventListener('touchstart', (e) => {
+  newTarget();
+  needsClear = true;
+}, { passive: true });
+
+// --- Render loop ---
+function render() {
+  frameTime++;
+
+  // Smooth mouse
+  mouseSmooth.x += (mouseInfluence.x - mouseSmooth.x) * 0.02;
+  mouseSmooth.y += (mouseInfluence.y - mouseSmooth.y) * 0.02;
+
+  // Morph parameters toward target
+  ['a','b','c','d'].forEach(k => {
+    params[k] += (targetParams[k] - params[k]) * 0.003;
+    // Add mouse-driven subtle perturbation
+    const mouseMod = (mouseSmooth.x - 0.5) * 0.02 * (k === 'a' || k === 'c' ? 1 : -1);
+    params[k] += mouseMod;
+  });
+
+  // Auto-morph every N frames
+  morphTimer++;
+  if (morphTimer > nextMorph) {
+    newTarget();
+    morphTimer = 0;
+    nextMorph = 600 + Math.random() * 800;
+  }
+
+  // Clear or fade
+  if (needsClear) {
+    ctx.fillStyle = '#030308';
+    ctx.fillRect(0, 0, W, H);
+    density.fill(0);
+    px = 0.1; py = 0.1;
+    iterCount = 0;
+    needsClear = false;
+  } else {
+    // Very slow fade for trailing effect
+    ctx.fillStyle = 'rgba(3, 3, 8, 0.012)';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Iterate attractor
+  const points = POINTS_PER_FRAME;
+  for (let i = 0; i < points; i++) {
+    const next = attract(px, py, params);
+    px = next.x;
+    py = next.y;
+
+    // Map to screen
+    const sx = Math.round((cx + px * scale) / GRID_SIZE);
+    const sy = Math.round((cy + py * scale) / GRID_SIZE);
+
+    if (sx >= 0 && sx < gridW && sy >= 0 && sy < gridH) {
+      const idx = sy * gridW + sx;
+      density[idx]++;
+
+      // Only draw if density threshold (avoid over-saturating empty space)
+      const d = density[idx];
+      if (d < 30) {
+          const screenX = cx + px * scale;
+          const screenY = cy + py * scale;
+
+          const baseHue = 250 + Math.sin(frameTime * 0.003) * 60;
+          const norm = Math.min(1, d / 8);
+          const hue = (baseHue + norm * 40 + screenX * 0.05) % 360;
+          const alpha = 0.06 + norm * 0.25;
+          const size = 0.6 + norm * 1.4;
+
+          ctx.fillStyle = `hsla(${hue}, 85%, ${45 + norm * 40}%, ${alpha})`;
+          ctx.fillRect(screenX, screenY, size, size);
+        }
+    }
+  }
+
+  iterCount += points;
+
+  // Periodic density bloom: overlay glow on high-density regions
+  if (frameTime % 20 === 0) {
+    ctx.globalCompositeOperation = 'lighter';
+    const baseHue = 250 + Math.sin(frameTime * 0.003) * 60;
+    let drawn = 0;
+    for (let gy = 0; gy < gridH && drawn < 200; gy += 3) {
+      for (let gx = 0; gx < gridW && drawn < 200; gx += 3) {
+        const idx = gy * gridW + gx;
+        const d = density[idx];
+        if (d > 15) {
+          const sx = gx * GRID_SIZE + GRID_SIZE / 2;
+          const sy = gy * GRID_SIZE + GRID_SIZE / 2;
+          const norm = Math.min(1, d / 40);
+          const r = 2 + norm * 6;
+          const hue = (baseHue + norm * 50) % 360;
+          const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 4);
+          grad.addColorStop(0, `hsla(${hue}, 90%, 65%, ${0.02 + norm * 0.06})`);
+          grad.addColorStop(1, `hsla(${hue}, 90%, 65%, 0)`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(sx - r * 4, sy - r * 4, r * 8, r * 8);
+          drawn++;
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  requestAnimationFrame(render);
+}
+
+// Start with a nice preset
+params = { a: -2.0, b: -2.0, c: -1.2, d: 2.0 };
+targetParams = { ...params };
+
+render();
+</script>
+</body>
+</html>
