@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portail — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #020308; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 100;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(80,200,255,0.5), rgba(40,100,200,0) 70%);
+    transform: translate(-50%, -50%);
+  }
+  #hint {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    color: rgba(100,160,220,0.35); font-family: Georgia, serif; font-size: 13px;
+    letter-spacing: 3px; pointer-events: none;
+    animation: fadeHint 7s ease-in forwards;
+  }
+  @keyframes fadeHint { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">move to shift the vortex · click to pulse · scroll to change realm</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+let W, H, CX, CY;
+function resize() {
+  W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let mouse = { x: W / 2, y: H / 2, click: 0, pulse: 0 };
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px';
+});
+document.addEventListener('mousedown', () => { mouse.click = 1; mouse.pulse = 1; });
+document.addEventListener('mouseup', () => { mouse.click = 0; });
+
+let realm = 0;
+window.addEventListener('wheel', e => {
+  realm += e.deltaY > 0 ? 1 : -1;
+  realm = ((realm % 60) + 60) % 60;
+}, { passive: true });
+
+// ─── Portal particles ───
+const N = 800;
+const P = [];
+
+class PortalParticle {
+  constructor() { this.reset(true); }
+  reset(initial) {
+    this.angle = Math.random() * Math.PI * 2;
+    this.radius = initial ? Math.random() * 350 : 340 + Math.random() * 50;
+    this.speed = 0.008 + Math.random() * 0.02;
+    this.radialSpeed = -0.3 - Math.random() * 1.2;
+    this.size = 0.5 + Math.random() * 2.5;
+    this.depth = Math.random();
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.02 + Math.random() * 0.04;
+    this.life = 1;
+    this.maxLife = 60 + Math.random() * 120;
+    this.age = 0;
+  }
+
+  update(t) {
+    this.angle += this.speed * (1 + (1 - this.radius / 350) * 2);
+    this.radius += this.radialSpeed * (1 + (350 - this.radius) / 200);
+
+    // Mouse influence — swirl center shifts
+    const targetCX = CX + (mouse.x - CX) * 0.15;
+    const targetCY = CY + (mouse.y - CY) * 0.15;
+    this.cx = targetCX; this.cy = targetCY;
+
+    // Click pulse pushes outward
+    if (mouse.pulse > 0) {
+      this.radius += mouse.pulse * 8;
+    }
+
+    this.wobble += this.wobbleSpeed;
+    this.age++;
+    this.life = 1 - this.age / this.maxLife;
+
+    if (this.radius < 8 || this.age > this.maxLife) {
+      this.reset(false);
+    }
+  }
+
+  draw(ctx, t) {
+    const wobR = this.radius + Math.sin(this.wobble) * 8;
+    const px = this.cx + Math.cos(this.angle) * wobR;
+    const py = this.cy + Math.sin(this.angle) * wobR * 0.75; // slight ellipse
+
+    const closeness = 1 - this.radius / 350; // 0 far, 1 near center
+    const baseHue = (200 + realm * 6 + closeness * 80 + t * 5) % 360;
+    const light = 40 + closeness * 35;
+    const alpha = this.life * (0.15 + closeness * 0.5);
+    const sz = this.size * (0.5 + closeness * 1.5);
+
+    // Glow
+    ctx.fillStyle = `hsla(${baseHue}, 90%, ${light}%, ${alpha * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(px, py, sz * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.fillStyle = `hsla(${baseHue}, 95%, ${Math.min(85, light + 20)}%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(px, py, sz, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+for (let i = 0; i < N; i++) P.push(new PortalParticle());
+
+// ─── Concentric ring shockwaves ───
+const rings = [];
+
+let t = 0;
+function loop() {
+  t += 0.016;
+
+  // Fade
+  ctx.fillStyle = 'rgba(2, 3, 8, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  const targetCX = CX + (mouse.x - CX) * 0.15;
+  const targetCY = CY + (mouse.y - CY) * 0.15;
+
+  // ─── Portal core glow ───
+  const pulseRadius = 35 + Math.sin(t * 2) * 8 + mouse.pulse * 40;
+  const coreHue = (200 + realm * 6) % 360;
+
+  const grad = ctx.createRadialGradient(targetCX, targetCY, 0, targetCX, targetCY, pulseRadius * 3);
+  grad.addColorStop(0, `hsla(${coreHue}, 100%, 70%, ${0.25 + mouse.pulse * 0.3})`);
+  grad.addColorStop(0.3, `hsla(${(coreHue + 30) % 360}, 90%, 50%, 0.08)`);
+  grad.addColorStop(1, `hsla(${coreHue}, 80%, 30%, 0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ─── Event horizon ring ───
+  ctx.strokeStyle = `hsla(${coreHue}, 100%, 65%, ${0.15 + Math.sin(t * 3) * 0.05})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(targetCX, targetCY, pulseRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `hsla(${(coreHue + 40) % 360}, 90%, 55%, 0.08)`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(targetCX, targetCY, pulseRadius * 1.6, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // ─── Shockwave on click ───
+  if (mouse.pulse > 0.01) {
+    rings.push({ r: pulseRadius, alpha: mouse.pulse * 0.4 });
+    mouse.pulse *= 0.85;
+  }
+
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const ring = rings[i];
+    ring.r += 6;
+    ring.alpha *= 0.96;
+    if (ring.alpha < 0.005) { rings.splice(i, 1); continue; }
+    ctx.strokeStyle = `hsla(${coreHue}, 100%, 60%, ${ring.alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(targetCX, targetCY, ring.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // ─── Particles ───
+  for (const p of P) {
+    p.update(t);
+    p.draw(ctx, t);
+  }
+
+  // ─── Faint rotating arcs (portal frame) ───
+  for (let i = 0; i < 6; i++) {
+    const a = t * (0.3 + i * 0.08) + i * 1.05;
+    const r = 180 + i * 25;
+    const arcHue = (coreHue + i * 20) % 360;
+    ctx.strokeStyle = `hsla(${arcHue}, 70%, 50%, 0.04)`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(targetCX, targetCY, r, a, a + 0.8);
+    ctx.stroke();
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

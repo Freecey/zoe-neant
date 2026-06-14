@@ -2,460 +2,206 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Murmuration — Zoe ✶</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { overflow: hidden; background: #050310; font-family: Georgia, serif; }
-  canvas { display: block; cursor: none; }
-  #title {
-    position: fixed; top: 30px; left: 50%; transform: translateX(-50%);
-    color: rgba(200,180,220,0.15); font-size: 14px; letter-spacing: 6px;
-    text-transform: uppercase; pointer-events: none; z-index: 10;
-    transition: opacity 3s ease;
+  body { background: #05070a; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 100;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(180,200,255,0.15), rgba(100,120,200,0) 70%);
+    transform: translate(-50%, -50%);
   }
   #hint {
-    position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%);
-    color: rgba(200,180,220,0.12); font-size: 12px; letter-spacing: 2px;
-    pointer-events: none; z-index: 10;
-    transition: opacity 5s ease;
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    color: rgba(150,170,200,0.35); font-family: Georgia, serif; font-size: 13px;
+    letter-spacing: 3px; text-transform: lowercase; pointer-events: none;
+    animation: fadeHint 7s ease-in forwards;
   }
-  #cursor {
-    position: fixed; width: 16px; height: 16px;
-    border: 1px solid rgba(255,240,200,0.3); border-radius: 50%;
-    pointer-events: none; z-index: 20;
-    transform: translate(-50%, -50%);
-    transition: width 0.2s, height 0.2s, border-color 0.2s;
-  }
-  #cursor.active {
-    width: 40px; height: 40px;
-    border-color: rgba(255,200,100,0.5);
-  }
+  @keyframes fadeHint { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
 </style>
 </head>
 <body>
-<div id="title">Murmuration</div>
-<div id="hint">déplacez la souris pour guider l'essaim · cliquez pour disperser</div>
 <div id="cursor"></div>
+<div id="hint">move to guide the flock · click to scatter · scroll to shift the sky</div>
 <canvas id="c"></canvas>
-
 <script>
-// ============================================================
-//  MURMURATION — Boids starling flock simulation
-//  Twilight sky · 800 birds · silhouette rendering
-// ============================================================
-
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Mouse ───
+let mouse = { x: W / 2, y: H / 2, click: 0 };
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px';
+});
+document.addEventListener('mousedown', e => { mouse.click = 1; });
+document.addEventListener('mouseup', () => { mouse.click = 0; });
 const cursor = document.getElementById('cursor');
 
-let W, H;
-let time = 0;
+let hueShift = 0;
+window.addEventListener('wheel', e => { hueShift += e.deltaY * 0.1; }, { passive: true });
 
-// Mouse state
-let mouseX = 0, mouseY = 0;
-let mouseActive = false;
-let clickPulse = 0;
-
-// Boids parameters
-const NUM_BOIDS = window.innerWidth < 768 ? 350 : 800;
-const VISUAL_RANGE = 60;
-const PROTECTED_RANGE = 18;
-const MAX_SPEED = 4.5;
-const MIN_SPEED = 2.0;
-const TURN_FACTOR = 0.35;
-const CENTERING_FACTOR = 0.0008;
-const MATCHING_FACTOR = 0.04;
-const SEPARATION_FACTOR = 0.06;
-const MOUSE_ATTRACT = 0.0006;
-const MOUSE_REPEL = 0.02;
-
-// Spatial grid for performance
-let gridCellSize = VISUAL_RANGE;
-let grid = new Map();
+// ─── Boid ───
+const COUNT = 320;
+const BOIDS = [];
 
 class Boid {
-  constructor(x, y) {
-    this.x = x !== undefined ? x : Math.random() * W;
-    this.y = y !== undefined ? y : Math.random() * H * 0.7;
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 2 + Math.random() * 2;
-    this.vx = Math.cos(angle) * speed;
-    this.vy = Math.sin(angle) * speed;
-    this.size = 2 + Math.random() * 2.5;
-    this.phase = Math.random() * Math.PI * 2;
-    this.depth = 0.6 + Math.random() * 0.4; // for parallax/scale
+  constructor() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    const a = Math.random() * Math.PI * 2;
+    const s = 1.5 + Math.random();
+    this.vx = Math.cos(a) * s;
+    this.vy = Math.sin(a) * s;
+    this.ax = 0; this.ay = 0;
+    this.history = [];
+    this.maxHistory = 6;
   }
 
-  update(neighbors) {
-    let alignX = 0, alignY = 0, alignCount = 0;
-    let cohX = 0, cohY = 0, cohCount = 0;
-    let sepX = 0, sepY = 0, sepCount = 0;
+  flock(boids) {
+    let sx = 0, sy = 0, avx = 0, avy = 0, cx = 0, cy = 0;
+    let sn = 0, an = 0, cn = 0;
 
-    for (const other of neighbors) {
+    for (const other of boids) {
       if (other === this) continue;
       const dx = other.x - this.x;
       const dy = other.y - this.y;
-      const distSq = dx * dx + dy * dy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < 1) continue;
 
-      if (distSq < VISUAL_RANGE * VISUAL_RANGE) {
-        // Alignment
-        alignX += other.vx;
-        alignY += other.vy;
-        alignCount++;
-
-        // Cohesion
-        cohX += other.x;
-        cohY += other.y;
-        cohCount++;
-
-        // Separation
-        if (distSq < PROTECTED_RANGE * PROTECTED_RANGE && distSq > 0) {
-          const dist = Math.sqrt(distSq);
-          sepX += dx / dist;
-          sepY += dy / dist;
-          sepCount++;
-        }
+      // Separation
+      if (d2 < 900) {
+        const d = Math.sqrt(d2);
+        sx -= dx / d2 * 20;
+        sy -= dy / d2 * 20;
+        sn++;
+      }
+      // Alignment
+      if (d2 < 6400) {
+        avx += other.vx; avy += other.vy; an++;
+      }
+      // Cohesion
+      if (d2 < 10000) {
+        cx += other.x; cy += other.y; cn++;
       }
     }
 
-    // Apply alignment
-    if (alignCount > 0) {
-      this.vx += (alignX / alignCount - this.vx) * MATCHING_FACTOR;
-      this.vy += (alignY / alignCount - this.vy) * MATCHING_FACTOR;
+    this.ax = 0; this.ay = 0;
+    if (sn > 0) { this.ax += sx * 0.04; this.ay += sy * 0.04; }
+    if (an > 0) { this.ax += (avx / an - this.vx) * 0.04; this.ay += (avy / an - this.vy) * 0.04; }
+    if (cn > 0) { this.ax += (cx / cn - this.x) * 0.0008; this.ay += (cy / cn - this.y) * 0.0008; }
+
+    // Mouse attraction (gentle, like wind)
+    const mdx = mouse.x - this.x;
+    const mdy = mouse.y - this.y;
+    const md2 = mdx * mdx + mdy * mdy;
+    if (md2 < 90000) {
+      const force = mouse.click ? -0.12 : 0.025;
+      this.ax += mdx * force / 100;
+      this.ay += mdy * force / 100;
     }
+  }
 
-    // Apply cohesion
-    if (cohCount > 0) {
-      const cx = cohX / cohCount;
-      const cy = cohY / cohCount;
-      this.vx += (cx - this.x) * CENTERING_FACTOR;
-      this.vy += (cy - this.y) * CENTERING_FACTOR;
-    }
-
-    // Apply separation
-    if (sepCount > 0) {
-      this.vx -= sepX * SEPARATION_FACTOR;
-      this.vy -= sepY * SEPARATION_FACTOR;
-    }
-
-    // Mouse interaction — attract when far, gentle guidance when close
-    if (mouseActive) {
-      const mdx = mouseX - this.x;
-      const mdy = mouseY - this.y;
-      const mDistSq = mdx * mdx + mdy * mdy;
-
-      if (clickPulse > 0 && mDistSq < 90000) {
-        // Click = predator scare → flee
-        if (mDistSq > 0) {
-          const mDist = Math.sqrt(mDistSq);
-          const force = (1 - mDist / 300) * clickPulse * 0.5;
-          this.vx -= (mdx / mDist) * force;
-          this.vy -= (mdy / mDist) * force;
-        }
-      } else if (mDistSq > 4900 && mDistSq < 90000) {
-        // Gentle attraction within 70-300px
-        const force = MOUSE_ATTRACT * (1 - Math.sqrt(mDistSq) / 300);
-        this.vx += mdx * force;
-        this.vy += mdy * force;
-      } else if (mDistSq < 2500 && mDistSq > 0) {
-        // Too close — avoid passing through cursor
-        const mDist = Math.sqrt(mDistSq);
-        this.vx -= (mdx / mDist) * MOUSE_REPEL;
-        this.vy -= (mdy / mDist) * MOUSE_REPEL;
-      }
-    }
-
-    // Speed clamping
-    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-    if (speed > MAX_SPEED) {
-      this.vx = (this.vx / speed) * MAX_SPEED;
-      this.vy = (this.vy / speed) * MAX_SPEED;
-    } else if (speed < MIN_SPEED) {
-      this.vx = (this.vx / speed) * MIN_SPEED;
-      this.vy = (this.vy / speed) * MIN_SPEED;
-    }
-
-    // Edge behavior — soft wrap with steering
-    const margin = 80;
-    if (this.x < margin) this.vx += TURN_FACTOR;
-    if (this.x > W - margin) this.vx -= TURN_FACTOR;
-    if (this.y < margin) this.vy += TURN_FACTOR;
-    if (this.y > H - margin) this.vy -= TURN_FACTOR;
+  update() {
+    this.vx += this.ax;
+    this.vy += this.ay;
+    const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    const maxSp = 3.2;
+    if (sp > maxSp) { this.vx = this.vx / sp * maxSp; this.vy = this.vy / sp * maxSp; }
+    const minSp = 1.2;
+    if (sp < minSp && sp > 0.01) { this.vx = this.vx / sp * minSp; this.vy = this.vy / sp * minSp; }
 
     this.x += this.vx;
     this.y += this.vy;
 
-    // Hard wrap as safety
+    // Wrap
     if (this.x < -20) this.x = W + 20;
     if (this.x > W + 20) this.x = -20;
     if (this.y < -20) this.y = H + 20;
     if (this.y > H + 20) this.y = -20;
 
-    this.phase += 0.15;
+    this.history.push(this.x, this.y);
+    if (this.history.length > this.maxHistory * 2) this.history.splice(0, 2);
   }
 
-  draw(ctx, skyHue) {
+  draw(ctx, t) {
+    const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     const angle = Math.atan2(this.vy, this.vx);
-    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-    const wingFlap = Math.sin(this.phase) * 0.4;
 
+    // Trail
+    if (this.history.length >= 4) {
+      ctx.beginPath();
+      ctx.moveTo(this.history[0], this.history[1]);
+      for (let i = 2; i < this.history.length; i += 2) {
+        ctx.lineTo(this.history[i], this.history[i + 1]);
+      }
+      const hue = (210 + hueShift + sp * 15) % 360;
+      ctx.strokeStyle = `hsla(${hue}, 45%, 60%, 0.12)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Bird shape (small triangle)
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(angle);
-
-    const s = this.size * this.depth;
-    const flap = s * (1 + wingFlap);
-
-    // Bird silhouette — simple dart/bird shape
-    // Tail
+    const hue = (200 + hueShift + sp * 20) % 360;
+    ctx.fillStyle = `hsla(${hue}, 55%, 72%, ${0.55 + sp * 0.08})`;
     ctx.beginPath();
-    ctx.moveTo(-s * 2, 0);
-    ctx.lineTo(-s * 0.8, -s * 0.3);
-    ctx.lineTo(-s * 0.8, s * 0.3);
+    ctx.moveTo(5, 0);
+    ctx.lineTo(-3, -2.5);
+    ctx.lineTo(-1.5, 0);
+    ctx.lineTo(-3, 2.5);
     ctx.closePath();
-    ctx.fillStyle = `hsla(${skyHue + 10}, 30%, ${8 + this.depth * 4}%, ${0.5 + this.depth * 0.3})`;
     ctx.fill();
-
-    // Body
-    ctx.beginPath();
-    ctx.moveTo(s * 1.5, 0);
-    ctx.lineTo(-s * 0.8, -s * 0.35);
-    ctx.lineTo(-s * 0.8, s * 0.35);
-    ctx.closePath();
-    ctx.fillStyle = `hsla(${skyHue + 10}, 25%, ${6 + this.depth * 5}%, ${0.6 + this.depth * 0.3})`;
-    ctx.fill();
-
-    // Wings — V shape that flaps
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(-s * 0.5, -flap * 2.5, -s * 1.8, -flap * 1.2);
-    ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(-s * 0.5, flap * 2.5, -s * 1.8, flap * 1.2);
-    ctx.strokeStyle = `hsla(${skyHue + 10}, 25%, ${5 + this.depth * 5}%, ${0.45 + this.depth * 0.3})`;
-    ctx.lineWidth = 1.2;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
     ctx.restore();
   }
 }
 
-let boids = [];
+for (let i = 0; i < COUNT; i++) BOIDS.push(new Boid());
 
-function initBoids() {
-  boids = [];
-  // Start in a tight cluster in the center-upper area
-  const cx = W * 0.5;
-  const cy = H * 0.4;
-  for (let i = 0; i < NUM_BOIDS; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.random() * 150;
-    boids.push(new Boid(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r));
-  }
+// ─── Distant sky particles ───
+const STARS = [];
+for (let i = 0; i < 80; i++) {
+  STARS.push({
+    x: Math.random() * W,
+    y: Math.random() * H * 0.7,
+    r: Math.random() * 1.2,
+    tw: Math.random() * Math.PI * 2
+  });
 }
 
-// Spatial hashing for neighbor queries
-function rebuildGrid() {
-  grid.clear();
-  for (let i = 0; i < boids.length; i++) {
-    const b = boids[i];
-    const gx = Math.floor(b.x / gridCellSize);
-    const gy = Math.floor(b.y / gridCellSize);
-    const key = gx + ',' + gy;
-    if (!grid.has(key)) grid.set(key, []);
-    grid.get(key).push(b);
-  }
-}
+let t = 0;
+function loop() {
+  t += 0.016;
 
-function getNeighbors(boid) {
-  const gx = Math.floor(boid.x / gridCellSize);
-  const gy = Math.floor(boid.y / gridCellSize);
-  const neighbors = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      const key = (gx + dx) + ',' + (gy + dy);
-      const cell = grid.get(key);
-      if (cell) {
-        for (const b of cell) neighbors.push(b);
-      }
-    }
-  }
-  return neighbors;
-}
-
-// ============================================================
-//  TWILIGHT SKY
-// ============================================================
-function drawSky() {
-  // Sky gradient — deep twilight
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  const skyHue = 255 + Math.sin(time * 0.0008) * 8;
-
-  // Top — deep indigo
-  grad.addColorStop(0, `hsl(${skyHue}, 40%, 6%)`);
-  // Upper mid — purple-violet
-  grad.addColorStop(0.3, `hsl(${skyHue - 10}, 35%, 8%)`);
-  // Horizon glow — warm amber/pink fading
-  grad.addColorStop(0.65, `hsl(${skyHue - 25}, 45%, 12%)`);
-  grad.addColorStop(0.85, `hsl(15, 30%, 7%)`);
-  grad.addColorStop(1, `hsl(10, 20%, 3%)`);
-
-  ctx.fillStyle = grad;
+  // Fade with subtle gradient
+  ctx.fillStyle = 'rgba(5, 7, 10, 0.14)';
   ctx.fillRect(0, 0, W, H);
 
-  // Horizon glow — subtle warm band
-  const horizonY = H * 0.72;
-  const glowGrad = ctx.createLinearGradient(0, horizonY - 100, 0, horizonY + 50);
-  glowGrad.addColorStop(0, 'rgba(0,0,0,0)');
-  glowGrad.addColorStop(0.6, 'rgba(80,40,20,0.06)');
-  glowGrad.addColorStop(1, 'rgba(40,20,10,0.12)');
-  ctx.fillStyle = glowGrad;
-  ctx.fillRect(0, horizonY - 100, W, 150);
-
-  // Distant cloud bands — very subtle
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  for (let i = 0; i < 3; i++) {
-    const cy = horizonY - 60 + i * 25;
-    const cx = (W * 0.3 + Math.sin(time * 0.0003 + i * 2) * W * 0.15);
-    const cw = W * 0.6;
-    const cloudGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cw * 0.4);
-    cloudGrad.addColorStop(0, `rgba(60,30,50,0.04)`);
-    cloudGrad.addColorStop(1, `rgba(60,30,50,0)`);
-    ctx.fillStyle = cloudGrad;
-    ctx.fillRect(cx - cw * 0.5, cy - 40, cw, 80);
+  // Stars
+  for (const s of STARS) {
+    s.tw += 0.02;
+    const a = 0.15 + Math.sin(s.tw) * 0.1;
+    ctx.fillStyle = `rgba(200,210,240,${a})`;
+    ctx.fillRect(s.x, s.y, s.r, s.r);
   }
-  ctx.restore();
+
+  // Update flock (spatial subdivision would be faster but 320 is fine)
+  for (const b of BOIDS) b.flock(BOIDS);
+  for (const b of BOIDS) b.update();
+  for (const b of BOIDS) b.draw(ctx, t);
+
+  requestAnimationFrame(loop);
 }
-
-// ============================================================
-//  RENDER LOOP
-// ============================================================
-function animate() {
-  time++;
-
-  // Full clear each frame — no trails for clean silhouettes
-  const skyHue = 255 + Math.sin(time * 0.0008) * 8;
-  drawSky();
-
-  // Decay click pulse
-  if (clickPulse > 0) clickPulse *= 0.92;
-
-  // Rebuild spatial grid each frame
-  rebuildGrid();
-
-  // Update and draw all boids
-  for (let i = 0; i < boids.length; i++) {
-    const neighbors = getNeighbors(boids[i]);
-    boids[i].update(neighbors);
-    boids[i].draw(ctx, skyHue);
-  }
-
-  // Subtle connection lines between very close boids — creates "density" effect
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < boids.length; i += 3) {
-    const b = boids[i];
-    const neighbors = getNeighbors(b);
-    for (const other of neighbors) {
-      if (other === b || other.x < b.x) continue; // avoid double-drawing
-      const dx = other.x - b.x;
-      const dy = other.y - b.y;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < 600) {
-        const alpha = (1 - Math.sqrt(distSq) / 25) * 0.02;
-        if (alpha > 0) {
-          ctx.beginPath();
-          ctx.moveTo(b.x, b.y);
-          ctx.lineTo(other.x, other.y);
-          ctx.strokeStyle = `hsla(${skyHue}, 20%, 20%, ${alpha})`;
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
-        }
-      }
-    }
-  }
-  ctx.globalCompositeOperation = 'source-over';
-
-  requestAnimationFrame(animate);
-}
-
-// ============================================================
-//  EVENTS
-// ============================================================
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-
-window.addEventListener('resize', resize);
-
-window.addEventListener('mousemove', (e) => {
-  mouseX = e.clientX;
-  mouseY = e.clientY;
-  mouseActive = true;
-  cursor.style.left = mouseX + 'px';
-  cursor.style.top = mouseY + 'px';
-});
-
-window.addEventListener('mouseleave', () => {
-  mouseActive = false;
-});
-
-window.addEventListener('click', (e) => {
-  clickPulse = 1;
-  cursor.classList.add('active');
-  setTimeout(() => cursor.classList.remove('active'), 300);
-
-  // Scatter burst — push nearby boids away strongly
-  for (const b of boids) {
-    const dx = b.x - e.clientX;
-    const dy = b.y - e.clientY;
-    const distSq = dx * dx + dy * dy;
-    if (distSq < 40000 && distSq > 0) {
-      const dist = Math.sqrt(distSq);
-      const force = (1 - dist / 200) * 6;
-      b.vx += (dx / dist) * force;
-      b.vy += (dy / dist) * force;
-    }
-  }
-});
-
-// Touch support
-window.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  const t = e.touches[0];
-  mouseX = t.clientX;
-  mouseY = t.clientY;
-  mouseActive = true;
-}, { passive: false });
-
-window.addEventListener('touchstart', (e) => {
-  const t = e.touches[0];
-  mouseX = t.clientX;
-  mouseY = t.clientY;
-  mouseActive = true;
-  clickPulse = 1;
-});
-
-window.addEventListener('touchend', () => {
-  mouseActive = false;
-});
-
-// ============================================================
-//  INIT
-// ============================================================
-resize();
-mouseX = W / 2;
-mouseY = H / 2;
-initBoids();
-animate();
-
-// Fade out title/hint
-setTimeout(() => {
-  document.getElementById('title').style.opacity = '0';
-  document.getElementById('hint').style.opacity = '0';
-}, 8000);
+loop();
 </script>
 </body>
 </html>

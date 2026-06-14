@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phare — Zoe ✶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #030408; overflow: hidden; cursor: none; }
+  canvas { display: block; }
+  #cursor {
+    position: fixed; pointer-events: none; z-index: 100;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,220,120,0.4), rgba(255,180,40,0) 70%);
+    transform: translate(-50%, -50%);
+  }
+  #hint {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    color: rgba(220,200,150,0.35); font-family: Georgia, serif; font-size: 13px;
+    letter-spacing: 3px; pointer-events: none;
+    animation: fadeHint 7s ease-in forwards;
+  }
+  @keyframes fadeHint { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="hint">move to turn the beam · click to ignite · scroll for intensity</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('cursor');
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+let mouse = { x: W / 2, y: H / 2 };
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px';
+});
+
+let intensity = 1;
+window.addEventListener('wheel', e => {
+  intensity *= e.deltaY > 0 ? 0.95 : 1.05;
+  intensity = Math.max(0.4, Math.min(2.5, intensity));
+}, { passive: true });
+
+let clickFlash = 0;
+document.addEventListener('mousedown', () => { clickFlash = 1; });
+
+// ─── Perlin noise ───
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  const perm = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [perm[i], perm[j]] = [perm[j], perm[i]];
+  }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (hash, x, y) => {
+    const h = hash & 3;
+    return ((h & 1) === 0 ? x : -x) + ((h & 2) === 0 ? y : -y);
+  };
+  return {
+    noise2D(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x), yf = y - Math.floor(y);
+      const u = fade(xf), v = fade(yf);
+      const aa = p[p[X] + Y], ab = p[p[X] + Y + 1];
+      const ba = p[p[X + 1] + Y], bb = p[p[X + 1] + Y + 1];
+      return lerp(v,
+        lerp(u, grad(aa, xf, yf), grad(ba, xf - 1, yf)),
+        lerp(u, grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1))
+      );
+    }
+  };
+})();
+
+// ─── Scene geometry ───
+// Lighthouse position — left-center
+const LX = () => W * 0.28;
+const LY = () => H * 0.42;
+const BEAM_ANGLE = -0.15; // slight upward tilt
+
+// ─── Stars ───
+const STARS = [];
+for (let i = 0; i < 150; i++) {
+  STARS.push({
+    x: Math.random() * W,
+    y: Math.random() * H * 0.5,
+    r: Math.random() * 1.3,
+    tw: Math.random() * Math.PI * 2,
+    twSpeed: 0.01 + Math.random() * 0.03
+  });
+}
+
+// ─── Fog particles ───
+const FOG = [];
+for (let i = 0; i < 60; i++) {
+  FOG.push({
+    x: Math.random() * W,
+    y: H * 0.35 + Math.random() * H * 0.3,
+    vx: 0.2 + Math.random() * 0.4,
+    r: 60 + Math.random() * 120,
+    alpha: 0.02 + Math.random() * 0.04,
+    offset: Math.random() * 1000
+  });
+}
+
+// ─── Ocean wave data ───
+const WAVE_LINES = 40;
+
+let beamRotation = 0;
+let t = 0;
+
+function loop() {
+  t += 0.016;
+
+  // Auto-rotate beam, but mouse influences direction
+  const mouseAngle = Math.atan2(mouse.y - LY(), mouse.x - LX());
+  beamRotation += 0.012; // continuous rotation
+  // Blend: auto-rotate but bias toward mouse
+  const displayAngle = beamRotation + (mouseAngle - beamRotation) * 0.015;
+
+  // ─── Sky gradient ───
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.6);
+  skyGrad.addColorStop(0, '#020308');
+  skyGrad.addColorStop(0.6, '#070612');
+  skyGrad.addColorStop(1, '#0c0a18');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H * 0.6);
+
+  // ─── Stars ───
+  for (const s of STARS) {
+    s.tw += s.twSpeed;
+    const a = 0.2 + Math.sin(s.tw) * 0.15;
+    ctx.fillStyle = `rgba(220,225,240,${a})`;
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+  }
+
+  // ─── Moon glow ───
+  const moonX = W * 0.75, moonY = H * 0.15, moonR = 28;
+  const moonGrad = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, moonR * 4);
+  moonGrad.addColorStop(0, 'rgba(230,230,210,0.12)');
+  moonGrad.addColorStop(0.3, 'rgba(200,200,180,0.04)');
+  moonGrad.addColorStop(1, 'rgba(180,180,160,0)');
+  ctx.fillStyle = moonGrad;
+  ctx.fillRect(0, 0, W, H * 0.5);
+  ctx.fillStyle = 'rgba(240,240,220,0.7)';
+  ctx.beginPath();
+  ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ─── Light beam ───
+  ctx.save();
+  const bx = LX(), by = LY();
+  ctx.translate(bx, by);
+  ctx.rotate(displayAngle + BEAM_ANGLE);
+
+  const beamLength = Math.sqrt(W * W + H * H) * 1.2;
+  const beamSpread = 0.28; // radians
+  const beamGrad = ctx.createLinearGradient(0, 0, beamLength, 0);
+  const beamA = (0.14 + clickFlash * 0.25) * intensity;
+  beamGrad.addColorStop(0, `rgba(255,235,160,${beamA})`);
+  beamGrad.addColorStop(0.2, `rgba(255,220,120,${beamA * 0.7})`);
+  beamGrad.addColorStop(0.6, `rgba(255,200,80,${beamA * 0.25})`);
+  beamGrad.addColorStop(1, `rgba(255,180,40,0)`);
+
+  ctx.fillStyle = beamGrad;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(beamLength, -Math.tan(beamSpread / 2) * beamLength);
+  ctx.lineTo(beamLength, Math.tan(beamSpread / 2) * beamLength);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // ─── Fog ───
+  for (const f of FOG) {
+    f.x += f.vx;
+    if (f.x > W + f.r) f.x = -f.r;
+    const ny = f.y + Math.sin(t * 0.5 + f.offset) * 10;
+    const fg = ctx.createRadialGradient(f.x, ny, 0, f.x, ny, f.r);
+    fg.addColorStop(0, `rgba(140,150,170,${f.alpha * intensity})`);
+    fg.addColorStop(1, 'rgba(140,150,170,0)');
+    ctx.fillStyle = fg;
+    ctx.fillRect(f.x - f.r, ny - f.r, f.r * 2, f.r * 2);
+  }
+
+  // ─── Ocean ───
+  const oceanTop = H * 0.58;
+  const oceanGrad = ctx.createLinearGradient(0, oceanTop, 0, H);
+  oceanGrad.addColorStop(0, '#080a14');
+  oceanGrad.addColorStop(0.5, '#040608');
+  oceanGrad.addColorStop(1, '#010204');
+  ctx.fillStyle = oceanGrad;
+  ctx.fillRect(0, oceanTop, W, H - oceanTop);
+
+  // Wave lines
+  for (let i = 0; i < WAVE_LINES; i++) {
+    const lineY = oceanTop + (i / WAVE_LINES) * (H - oceanTop);
+    const perspective = i / WAVE_LINES;
+    const amp = 3 + perspective * 12;
+    const freq = 0.008 - perspective * 0.003;
+    const speed = t * (0.5 + perspective * 1.5);
+
+    ctx.beginPath();
+    ctx.moveTo(0, lineY);
+    for (let x = 0; x <= W; x += 4) {
+      const n = Noise.noise2D(x * freq + speed, i * 0.5);
+      ctx.lineTo(x, lineY + n * amp);
+    }
+    const waveAlpha = (0.04 + perspective * 0.08) * intensity;
+    ctx.strokeStyle = `rgba(120,140,180,${waveAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // ─── Moon reflection on water ───
+  for (let i = 0; i < 20; i++) {
+    const ry = oceanTop + i * (H - oceanTop) / 25;
+    const spread = i * 3 + 10;
+    const a = (0.06 - i * 0.003) * intensity;
+    if (a <= 0) break;
+    ctx.fillStyle = `rgba(240,240,220,${a})`;
+    ctx.fillRect(moonX - spread / 2, ry, spread, 2);
+  }
+
+  // ─── Lighthouse structure ───
+  const lx = LX(), ly = LY();
+  ctx.save();
+  ctx.translate(lx, ly);
+
+  // Cliff/base shadow
+  ctx.fillStyle = 'rgba(8,6,4,0.9)';
+  ctx.beginPath();
+  ctx.ellipse(0, H * 0.18, 50, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tower — tapered shape
+  const towerH = H * 0.25;
+  const baseW = 24, topW = 16;
+  ctx.fillStyle = '#1a1814';
+  ctx.beginPath();
+  ctx.moveTo(-baseW / 2, 5);
+  ctx.lineTo(-topW / 2, -towerH);
+  ctx.lineTo(topW / 2, -towerH);
+  ctx.lineTo(baseW / 2, 5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Stripes (candy-stripe lighthouse)
+  for (let i = 0; i < 5; i++) {
+    const stripeH = towerH / 5;
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(200,80,40,0.25)';
+      const w1 = baseW / 2 - (baseW / 2 - topW / 2) * (i / 5);
+      const w2 = baseW / 2 - (baseW / 2 - topW / 2) * ((i + 1) / 5);
+      ctx.beginPath();
+      ctx.moveTo(-w1, 5 - i * stripeH);
+      ctx.lineTo(-w2, 5 - (i + 1) * stripeH);
+      ctx.lineTo(w2, 5 - (i + 1) * stripeH);
+      ctx.lineTo(w1, 5 - i * stripeH);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Lantern room
+  const lanternY = -towerH - 8;
+  ctx.fillStyle = '#252018';
+  ctx.fillRect(-topW / 2 - 2, lanternY, topW + 4, 12);
+
+  // Light source glow
+  const lightGlow = ctx.createRadialGradient(0, lanternY + 6, 0, 0, lanternY + 6, 30);
+  const lampIntensity = intensity * (1 + clickFlash);
+  lightGlow.addColorStop(0, `rgba(255,240,180,${0.8 * lampIntensity})`);
+  lightGlow.addColorStop(0.3, `rgba(255,220,120,${0.3 * lampIntensity})`);
+  lightGlow.addColorStop(1, 'rgba(255,200,80,0)');
+  ctx.fillStyle = lightGlow;
+  ctx.fillRect(-35, lanternY - 20, 70, 50);
+
+  // Lamp
+  ctx.fillStyle = `rgba(255,245,200,${lampIntensity})`;
+  ctx.beginPath();
+  ctx.arc(0, lanternY + 6, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Roof
+  ctx.fillStyle = '#15120e';
+  ctx.beginPath();
+  ctx.moveTo(-topW / 2 - 4, lanternY);
+  ctx.lineTo(0, lanternY - 14);
+  ctx.lineTo(topW / 2 + 4, lanternY);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+
+  // ─── Decay flash ───
+  clickFlash *= 0.92;
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
