@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Mue</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#030608;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block;position:fixed;top:0;left:0}
+    #label{position:fixed;bottom:1.8rem;left:50%;transform:translateX(-50%);color:rgba(80,200,180,.18);font-size:.7rem;letter-spacing:.6em;text-transform:uppercase;pointer-events:none;z-index:10;transition:color 2s ease}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="label">✶ mue</div>
+  <script>
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const labelEl = document.getElementById('label');
+    let W, H;
+    let time = 0;
+    let mouse = { x: -9999, y: -9999, active: false };
+
+    // Shed skin particles
+    let shedParticles = [];
+
+    // Color palettes — the organism cycles through these
+    const palettes = [
+      { core: [80, 220, 200], edge: [30, 120, 100], glow: [100, 240, 220], bg: [3, 6, 8] },     // teal
+      { core: [180, 80, 200], edge: [80, 30, 100], glow: [220, 100, 240], bg: [8, 3, 8] },       // magenta
+      { core: [220, 140, 60], edge: [120, 60, 20], glow: [255, 180, 80], bg: [8, 5, 3] },        // amber
+      { core: [80, 140, 240], edge: [30, 60, 120], glow: [100, 170, 255], bg: [3, 5, 8] },       // blue
+      { core: [240, 80, 100], edge: [100, 20, 30], glow: [255, 100, 130], bg: [8, 3, 5] },       // crimson
+      { core: [140, 240, 80], edge: [50, 100, 20], glow: [170, 255, 100], bg: [4, 6, 3] },       // green
+    ];
+
+    let currentPaletteIdx = 0;
+    let nextPaletteIdx = 1;
+    let paletteBlend = 0; // 0 = current, 1 = next
+    let paletteTimer = 0;
+
+    // Layers of the organism — each morphs at different speed
+    const layers = [];
+    const NUM_LAYERS = 4;
+
+    // Noise function (simplified perlin-ish)
+    function noise(x, y, z) {
+      // Use layered sine waves as pseudo-noise — smooth and organic
+      let n = 0;
+      n += Math.sin(x * 1.2 + z * 0.7) * Math.cos(y * 0.8 + z * 0.5);
+      n += Math.sin(x * 2.5 + z * 1.1) * Math.cos(y * 1.7 + z * 0.9) * 0.5;
+      n += Math.sin(x * 4.0 + z * 1.8) * Math.cos(y * 3.2 + z * 1.4) * 0.25;
+      return n / 1.75;
+    }
+
+    class ShedParticle {
+      constructor(x, y, vx, vy, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.life = 1;
+        this.size = 1 + Math.random() * 3;
+        this.color = color;
+        this.rot = Math.random() * Math.PI * 2;
+        this.rotSpeed = (Math.random() - 0.5) * 0.05;
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+        this.vy += 0.02; // slight gravity
+        this.rot += this.rotSpeed;
+        this.life -= 0.006;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+        const a = this.life * this.life; // ease out
+        const [r, g, b] = this.color;
+
+        // Flake-like shape
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rot);
+
+        ctx.fillStyle = `rgba(${r},${g},${b},${a * 0.6})`;
+        ctx.strokeStyle = `rgba(${r},${g},${b},${a * 0.8})`;
+        ctx.lineWidth = 0.5;
+
+        ctx.beginPath();
+        const sides = 4;
+        for (let i = 0; i < sides; i++) {
+          const ang = (i / sides) * Math.PI * 2;
+          const r2 = this.size * (0.5 + Math.random() * 0.5);
+          const px = Math.cos(ang) * r2;
+          const py = Math.sin(ang) * r2;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
+    function blendPalette(t) {
+      const cur = palettes[currentPaletteIdx];
+      const nxt = palettes[nextPaletteIdx];
+      return {
+        core: cur.core.map((v, i) => v + (nxt.core[i] - v) * t),
+        edge: cur.edge.map((v, i) => v + (nxt.edge[i] - v) * t),
+        glow: cur.glow.map((v, i) => v + (nxt.glow[i] - v) * t),
+        bg: cur.bg.map((v, i) => v + (nxt.bg[i] - v) * t),
+      };
+    }
+
+    function init() {
+      W = cv.width = window.innerWidth;
+      H = cv.height = window.innerHeight;
+
+      layers.length = 0;
+      for (let i = 0; i < NUM_LAYERS; i++) {
+        layers.push({
+          noiseSpeed: 0.003 + i * 0.0015,
+          noiseScale: 0.008 - i * 0.0015,
+          radiusMult: 0.95 - i * 0.18,
+          distortion: 0.3 + i * 0.12,
+          offset: i * 100,
+          segments: 120,
+          phase: i * Math.PI / 3,
+        });
+      }
+      shedParticles = [];
+    }
+
+    function drawOrganism() {
+      const cx = W / 2;
+      const cy = H / 2;
+      const baseRadius = Math.min(W, H) * 0.22;
+      const pal = blendPalette(paletteBlend);
+
+      // Update background — subtle shift
+      const [br, bg2, bb] = pal.bg;
+      const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.8);
+      bgGrad.addColorStop(0, `rgb(${br + 8},${bg2 + 8},${bb + 8})`);
+      bgGrad.addColorStop(0.6, `rgb(${br},${bg2},${bb})`);
+      bgGrad.addColorStop(1, `rgb(${Math.max(0,br-3)},${Math.max(0,bg2-3)},${Math.max(0,bb-3)})`);
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Draw layers from outer to inner
+      for (let li = layers.length - 1; li >= 0; li--) {
+        const layer = layers[li];
+        const layerT = time * layer.noiseSpeed;
+        const radius = baseRadius * layer.radiusMult;
+        const distAmount = radius * layer.distortion;
+
+        // Build the morphed shape
+        const points = [];
+        for (let i = 0; i <= layer.segments; i++) {
+          const angle = (i / layer.segments) * Math.PI * 2;
+          const nx = Math.cos(angle) + Math.cos(layer.phase);
+          const ny = Math.sin(angle) + Math.sin(layer.phase);
+          const distortion = noise(nx, ny, layerT) * distAmount;
+
+          let r = radius + distortion;
+
+          // Mouse distortion — pull/push the membrane
+          if (mouse.active) {
+            const px = cx + Math.cos(angle) * r;
+            const py = cy + Math.sin(angle) * r;
+            const dx = px - mouse.x;
+            const dy = py - mouse.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 250) {
+              const force = (1 - dist / 250);
+              r += force * 60 * Math.sin(angle * 3 + time * 0.05);
+            }
+          }
+
+          const x = cx + Math.cos(angle) * r;
+          const y = cy + Math.sin(angle) * r;
+          points.push({ x, y, angle, r });
+        }
+
+        // Layer opacity based on depth
+        const layerAlpha = 0.15 + (li === 0 ? 0.15 : 0) + (1 - li / NUM_LAYERS) * 0.1;
+        const [cr, cg, cb] = li === 0 ? pal.core : pal.edge;
+        const [gr, gg, gb] = pal.glow;
+
+        // Glow halo behind the shape
+        if (li === 0) {
+          const glowGrad = ctx.createRadialGradient(cx, cy, radius * 0.5, cx, cy, radius * 2.5);
+          glowGrad.addColorStop(0, `rgba(${gr},${gg},${gb},0.08)`);
+          glowGrad.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.04)`);
+          glowGrad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+          ctx.fillStyle = glowGrad;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // Fill the membrane
+        ctx.beginPath();
+        for (let i = 0; i < points.length; i++) {
+          if (i === 0) ctx.moveTo(points[i].x, points[i].y);
+          else {
+            // Smooth curve
+            const p0 = points[i - 1];
+            const p1 = points[i];
+            const mx = (p0.x + p1.x) / 2;
+            const my = (p0.y + p1.y) / 2;
+            ctx.quadraticCurveTo(p0.x, p0.y, mx, my);
+          }
+        }
+        ctx.closePath();
+
+        // Gradient fill
+        const fillGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 1.5);
+        if (li === 0) {
+          fillGrad.addColorStop(0, `rgba(${cr},${cg},${cb},${layerAlpha * 1.5})`);
+          fillGrad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${layerAlpha * 0.6})`);
+          fillGrad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        } else {
+          fillGrad.addColorStop(0, `rgba(${cr},${cg},${cb},0)`);
+          fillGrad.addColorStop(0.7, `rgba(${cr},${cg},${cb},${layerAlpha * 0.3})`);
+          fillGrad.addColorStop(1, `rgba(${cr},${cg},${cb},${layerAlpha})`);
+        }
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+
+        // Stroke the membrane
+        ctx.strokeStyle = li === 0
+          ? `rgba(${gr},${gg},${gb},${0.4 + layerAlpha})`
+          : `rgba(${cr},${cg},${cb},${layerAlpha * 0.8})`;
+        ctx.lineWidth = li === 0 ? 1.5 : 0.5;
+        ctx.stroke();
+
+        // Shed particles from outer edge
+        if (li === 0 && Math.random() < 0.4) {
+          const p = points[Math.floor(Math.random() * points.length)];
+          const ang = p.angle + (Math.random() - 0.5) * 0.3;
+          const speed = 0.5 + Math.random() * 2;
+          shedParticles.push(new ShedParticle(
+            p.x, p.y,
+            Math.cos(ang) * speed,
+            Math.sin(ang) * speed,
+            pal.core
+          ));
+        }
+      }
+
+      // Bright pulsing center
+      const pulseR = baseRadius * 0.08 * (0.8 + 0.2 * Math.sin(time * 0.04));
+      const [pr, pg, pb] = pal.glow;
+      const centerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR * 4);
+      centerGrad.addColorStop(0, `rgba(255,255,255,0.5)`);
+      centerGrad.addColorStop(0.2, `rgba(${pr},${pg},${pb},0.4)`);
+      centerGrad.addColorStop(1, `rgba(${pr},${pg},${pb},0)`);
+      ctx.fillStyle = centerGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseR * 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawShed() {
+      shedParticles = shedParticles.filter(p => p.life > 0);
+      for (const p of shedParticles) {
+        p.update();
+        p.draw();
+      }
+    }
+
+    function updatePalette() {
+      paletteTimer++;
+      // Transition over ~8 seconds (480 frames at 60fps)
+      if (paletteTimer > 600) {
+        paletteTimer = 0;
+        paletteBlend = 0;
+        currentPaletteIdx = nextPaletteIdx;
+        nextPaletteIdx = (nextPaletteIdx + 1) % palettes.length;
+        // Update label color to match
+        const pal = palettes[currentPaletteIdx];
+        labelEl.style.color = `rgba(${pal.core[0]},${pal.core[1]},${pal.core[2]},.18)`;
+      } else if (paletteTimer > 120) {
+        // Start blending in the last 480 frames
+        const blendStart = 120;
+        const blendDuration = 480;
+        paletteBlend = Math.min(1, (paletteTimer - blendStart) / blendDuration);
+      }
+    }
+
+    function animate() {
+      time++;
+      updatePalette();
+      drawOrganism();
+      drawShed();
+      requestAnimationFrame(animate);
+    }
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouse.active = true;
+    });
+    window.addEventListener('mouseleave', () => { mouse.active = false; });
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches[0]) {
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+        mouse.active = true;
+      }
+    });
+    window.addEventListener('resize', init);
+
+    init();
+    animate();
+  </script>
+</body>
+</html>
