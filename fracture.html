@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Fracture</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#080606;overflow:hidden;font-family:'Courier New',monospace;cursor:crosshair}
+    canvas{display:block;position:fixed;top:0;left:0}
+    #label{position:fixed;bottom:1.8rem;left:50%;transform:translateX(-50%);color:rgba(255,80,40,.2);font-size:.7rem;letter-spacing:.6em;text-transform:uppercase;pointer-events:none;z-index:10;animation:flicker 4s steps(1) infinite}
+    @keyframes flicker{
+      0%,93%,100%{opacity:.2}
+      94%{opacity:0}
+      95%{opacity:.5}
+      96%{opacity:0}
+      97%{opacity:.3}
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="label">✶ fracture</div>
+  <script>
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    let W, H;
+    let cracks = [];
+    let sparks = [];
+    let shards = [];
+    let mouse = { x: -9999, y: -9999 };
+    let time = 0;
+    let glows = []; // light bleeding through fractures
+
+    class Crack {
+      constructor(x, y, angle, length, depth = 0, gen = 0) {
+        this.startX = x;
+        this.startY = y;
+        this.angle = angle;
+        this.targetLength = length;
+        this.currentLength = 0;
+        this.speed = 4 + Math.random() * 8;
+        this.depth = depth;
+        this.gen = gen;
+        this.branches = [];
+        this.branched = false;
+        this.thickness = Math.max(0.3, 3 - gen * 0.7);
+        this.alive = true;
+        this.glowPhase = Math.random() * Math.PI * 2;
+      }
+
+      get endX() { return this.startX + Math.cos(this.angle) * this.currentLength; }
+      get endY() { return this.startY + Math.sin(this.angle) * this.currentLength; }
+
+      update() {
+        if (this.currentLength < this.targetLength) {
+          this.currentLength += this.speed;
+
+          // Spawn sparks at the crack tip
+          if (Math.random() < 0.5) {
+            sparks.push(new Spark(this.endX, this.endY, this.angle));
+          }
+
+          // Branch randomly
+          if (!this.branched && this.gen < 3 && this.currentLength > this.targetLength * 0.3) {
+            if (Math.random() < 0.04 && this.depth < 2) {
+              this.branched = true;
+              const branchAngle1 = this.angle + (0.3 + Math.random() * 0.5);
+              const branchAngle2 = this.angle - (0.3 + Math.random() * 0.5);
+              const branchLen = this.targetLength * (0.3 + Math.random() * 0.3);
+              this.branches.push(new Crack(this.endX, this.endY, branchAngle1, branchLen, this.depth + 1, this.gen + 1));
+              if (Math.random() < 0.5) {
+                this.branches.push(new Crack(this.endX, this.endY, branchAngle2, branchLen, this.depth + 1, this.gen + 1));
+              }
+            }
+          }
+
+          // Add glow point
+          if (Math.random() < 0.3) {
+            glows.push({ x: this.endX, y: this.endY, r: 2 + Math.random() * 8, life: 1, maxLife: 1 });
+          }
+        } else {
+          this.alive = false;
+        }
+
+        for (const b of this.branches) b.update();
+      }
+
+      draw() {
+        const ex = this.endX;
+        const ey = this.endY;
+
+        // Dark crack line
+        ctx.strokeStyle = `rgba(10,5,5,${0.9})`;
+        ctx.lineWidth = this.thickness + 1.5;
+        ctx.beginPath();
+        ctx.moveTo(this.startX, this.startY);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+
+        // Inner glow — light bleeding through
+        const glowAlpha = 0.5 + 0.3 * Math.sin(time * 0.05 + this.glowPhase);
+        const grad = ctx.createLinearGradient(this.startX, this.startY, ex, ey);
+        grad.addColorStop(0, `rgba(255,60,20,0)`);
+        grad.addColorStop(0.5, `rgba(255,100,40,${glowAlpha * 0.4})`);
+        grad.addColorStop(1, `rgba(255,140,60,${glowAlpha * 0.7})`);
+
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = this.thickness;
+        ctx.beginPath();
+        ctx.moveTo(this.startX, this.startY);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+
+        // Bright tip while growing
+        if (this.alive && this.currentLength < this.targetLength) {
+          const tipGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, 12);
+          tipGrad.addColorStop(0, 'rgba(255,200,100,0.9)');
+          tipGrad.addColorStop(0.4, 'rgba(255,80,30,0.4)');
+          tipGrad.addColorStop(1, 'rgba(255,40,10,0)');
+          ctx.fillStyle = tipGrad;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 12, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        for (const b of this.branches) b.draw();
+      }
+    }
+
+    class Spark {
+      constructor(x, y, baseAngle) {
+        this.x = x;
+        this.y = y;
+        const spread = (Math.random() - 0.5) * Math.PI;
+        const speed = 1 + Math.random() * 5;
+        this.vx = Math.cos(baseAngle + spread) * speed;
+        this.vy = Math.sin(baseAngle + spread) * speed - 1;
+        this.life = 1;
+        this.size = 0.5 + Math.random() * 2;
+        this.hue = 10 + Math.random() * 30; // orange-red range
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.08; // gravity
+        this.vx *= 0.97;
+        this.life -= 0.02;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+        const alpha = this.life;
+
+        // Glow
+        const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 4);
+        grad.addColorStop(0, `hsla(${this.hue},100%,70%,${alpha * 0.8})`);
+        grad.addColorStop(0.5, `hsla(${this.hue},100%,50%,${alpha * 0.3})`);
+        grad.addColorStop(1, `hsla(${this.hue},100%,40%,0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size * 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Core
+        ctx.fillStyle = `hsla(${this.hue + 20},100%,90%,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    class Shard {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.originalX = x;
+        this.originalY = y;
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4 - 2;
+        this.rot = 0;
+        this.rotSpeed = (Math.random() - 0.5) * 0.1;
+        this.size = 3 + Math.random() * 12;
+        this.life = 1;
+        this.points = this.generateShape();
+      }
+
+      generateShape() {
+        const pts = [];
+        const n = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+          const r = this.size * (0.5 + Math.random() * 0.5);
+          pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+        }
+        return pts;
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.15;
+        this.rot += this.rotSpeed;
+        this.life -= 0.008;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rot);
+        ctx.globalAlpha = this.life;
+
+        // Dark shard
+        ctx.fillStyle = 'rgba(15,8,8,0.9)';
+        ctx.strokeStyle = `rgba(255,80,30,${this.life * 0.6})`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        for (let i = 0; i < this.points.length; i++) {
+          const p = this.points[i];
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function spawnFracture(x, y) {
+      // Main cracks radiating outward
+      const numMain = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < numMain; i++) {
+        const angle = (i / numMain) * Math.PI * 2 + Math.random() * 0.4;
+        const length = 80 + Math.random() * 200;
+        cracks.push(new Crack(x, y, angle, length));
+      }
+
+      // Shards
+      const numShards = 5 + Math.floor(Math.random() * 8);
+      for (let i = 0; i < numShards; i++) {
+        shards.push(new Shard(x + (Math.random() - 0.5) * 30, y + (Math.random() - 0.5) * 30));
+      }
+
+      // Impact glow
+      glows.push({ x, y, r: 40, life: 1, maxLife: 1 });
+    }
+
+    function init() {
+      W = cv.width = window.innerWidth;
+      H = cv.height = window.innerHeight;
+      cracks = [];
+      sparks = [];
+      shards = [];
+      glows = [];
+
+      // Initial fracture in center — something already broke
+      setTimeout(() => spawnFracture(W / 2, H / 2), 500);
+    }
+
+    function drawBackground() {
+      // Dark vignette with subtle red warmth — only call once/at resize
+      const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+      grad.addColorStop(0, '#120a08');
+      grad.addColorStop(0.5, '#0a0606');
+      grad.addColorStop(1, '#050303');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawGlows() {
+      glows = glows.filter(g => g.life > 0);
+      for (const g of glows) {
+        g.life -= 0.008;
+        const alpha = g.life;
+        const r = g.r * (1 + (1 - g.life) * 3);
+
+        const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r);
+        grad.addColorStop(0, `rgba(255,100,40,${alpha * 0.5})`);
+        grad.addColorStop(0.3, `rgba(255,60,20,${alpha * 0.2})`);
+        grad.addColorStop(1, 'rgba(120,20,5,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function animate() {
+      time++;
+
+      // Full clear + background each frame — cracks are persistent geometry
+      drawBackground();
+
+      // Glows (behind cracks)
+      ctx.globalCompositeOperation = 'screen';
+      drawGlows();
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Cracks
+      for (const c of cracks) {
+        c.update();
+        c.draw();
+      }
+
+      // Sparks
+      ctx.globalCompositeOperation = 'screen';
+      sparks = sparks.filter(s => s.life > 0);
+      for (const s of sparks) {
+        s.update();
+        s.draw();
+      }
+
+      // Shards
+      ctx.globalCompositeOperation = 'source-over';
+      shards = shards.filter(s => s.life > 0);
+      for (const s of shards) {
+        s.update();
+        s.draw();
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Random ambient micro-fractures
+      if (Math.random() < 0.003 && cracks.length < 30) {
+        const x = Math.random() * W;
+        const y = Math.random() * H;
+        const angle = Math.random() * Math.PI * 2;
+        cracks.push(new Crack(x, y, angle, 30 + Math.random() * 60, 0, 2));
+        glows.push({ x, y, r: 15, life: 0.8, maxLife: 0.8 });
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Input
+    window.addEventListener('click', (e) => {
+      spawnFracture(e.clientX, e.clientY);
+    });
+
+    let lastMoveTime = 0;
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      const now = Date.now();
+      // Small micro-fractures on fast mouse move
+      if (now - lastMoveTime > 200 && Math.random() < 0.3) {
+        lastMoveTime = now;
+        const angle = Math.random() * Math.PI * 2;
+        cracks.push(new Crack(e.clientX, e.clientY, angle, 20 + Math.random() * 50, 0, 2));
+        glows.push({ x: e.clientX, y: e.clientY, r: 10, life: 0.6, maxLife: 0.6 });
+      }
+    });
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches[0]) {
+        spawnFracture(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    });
+
+    window.addEventListener('resize', init);
+
+    init();
+    animate();
+  </script>
+</body>
+</html>
