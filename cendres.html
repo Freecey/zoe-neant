@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoe ✶ — Cendres</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#060403;overflow:hidden;font-family:'Courier New',monospace}
+    canvas{display:block;position:fixed;top:0;left:0}
+    #label{position:fixed;bottom:1.8rem;left:50%;transform:translateX(-50%);color:rgba(255,120,40,.15);font-size:.7rem;letter-spacing:.6em;text-transform:uppercase;pointer-events:none;z-index:10;animation:fade 8s ease-in-out infinite}
+    @keyframes fade{0%,100%{opacity:.08}50%{opacity:.2}}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="label">✶ cendres</div>
+  <script>
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    let W, H;
+    let embers = [];
+    let ash = [];
+    let phoenix = null;
+    let time = 0;
+    let mouse = { x: -9999, y: -9999, active: false };
+
+    // Fire palette
+    const FIRE = {
+      white: 'rgba(255,250,240,',
+      yellow: 'rgba(255,220,100,',
+      orange: 'rgba(255,140,40,',
+      red: 'rgba(220,50,15,',
+      deepRed: 'rgba(120,20,5,',
+      ash: 'rgba(80,70,65,',
+      darkAsh: 'rgba(40,35,32,',
+    };
+
+    class Ember {
+      constructor(x, y, vx, vy, life) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.life = life;
+        this.maxLife = life;
+        this.size = 0.8 + Math.random() * 2.5;
+        this.heat = 1; // 1 = white hot, 0 = dead ash
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Buoyancy — hot embers rise
+        this.vy -= 0.03 * this.heat;
+
+        // Drag
+        this.vx *= 0.99;
+        this.vy *= 0.99;
+
+        // Wind from mouse
+        if (mouse.active) {
+          const dx = this.x - mouse.x;
+          const dy = this.y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 200) {
+            const force = (1 - dist / 200) * 0.5;
+            this.vx += (dx / dist) * force;
+            this.vy += (dy / dist) * force;
+            this.heat = Math.min(1, this.heat + force * 0.1); // mouse reheats
+          }
+        }
+
+        // Cool down
+        this.heat -= 0.004;
+        this.life -= 0.005;
+
+        // Convert to ash when cold enough
+        if (this.heat < 0.15 && Math.random() < 0.02) {
+          ash.push(new AshParticle(this.x, this.y, this.vx, this.vy));
+          this.life = 0;
+        }
+      }
+
+      getColor() {
+        const h = this.heat;
+        if (h > 0.8) return FIRE.white;
+        if (h > 0.6) return FIRE.yellow;
+        if (h > 0.4) return FIRE.orange;
+        if (h > 0.2) return FIRE.red;
+        return FIRE.deepRed;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+        const lifeAlpha = Math.min(1, this.life / this.maxLife * 1.5);
+        const h = this.heat;
+        const col = this.getColor();
+        const alpha = lifeAlpha * (0.4 + h * 0.6);
+        const r = this.size * (0.5 + h * 0.5);
+
+        // Glow
+        if (h > 0.2) {
+          const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 8);
+          grad.addColorStop(0, col + (alpha * 0.4) + ')');
+          grad.addColorStop(0.3, col + (alpha * 0.15) + ')');
+          grad.addColorStop(1, col + '0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, r * 8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Core
+        ctx.fillStyle = col + alpha + ')';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    class AshParticle {
+      constructor(x, y, vx, vy) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx * 0.3;
+        this.vy = vy * 0.3;
+        this.life = 1;
+        this.size = 1 + Math.random() * 3;
+        this.rot = Math.random() * Math.PI * 2;
+        this.rotSpeed = (Math.random() - 0.5) * 0.03;
+        this.shape = this.makeShape();
+      }
+
+      makeShape() {
+        const pts = [];
+        const n = 4 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const r = this.size * (0.4 + Math.random() * 0.6);
+          pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+        }
+        return pts;
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx += (Math.random() - 0.5) * 0.05; // drift
+        this.vy += (Math.random() - 0.5) * 0.03;
+        this.vx *= 0.99;
+        this.vy *= 0.99;
+        this.rot += this.rotSpeed;
+        this.life -= 0.0015;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+        const a = this.life;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rot);
+
+        // Dark ash flake
+        ctx.fillStyle = FIRE.ash + (a * 0.5) + ')';
+        ctx.strokeStyle = FIRE.darkAsh + (a * 0.7) + ')';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        for (let i = 0; i < this.shape.length; i++) {
+          if (i === 0) ctx.moveTo(this.shape[i].x, this.shape[i].y);
+          else ctx.lineTo(this.shape[i].x, this.shape[i].y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
+    class Phoenix {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.r = 0;
+        this.maxR = Math.min(W, H) * 0.5;
+        this.life = 1;
+        this.dead = false;
+      }
+
+      update() {
+        this.r += 8;
+        this.life = Math.max(0, 1 - this.r / this.maxR);
+        if (this.r > this.maxR) this.dead = true;
+      }
+
+      draw() {
+        if (this.life <= 0) return;
+
+        // Multiple expanding rings — rebirth shockwave
+        for (let i = 0; i < 4; i++) {
+          const ringR = this.r - i * 30;
+          if (ringR <= 0) continue;
+          const ringAlpha = this.life * (0.4 - i * 0.08);
+          if (ringAlpha <= 0) continue;
+
+          const col = i === 0 ? FIRE.white : (i === 1 ? FIRE.yellow : (i === 2 ? FIRE.orange : FIRE.red));
+          ctx.strokeStyle = col + ringAlpha + ')';
+          ctx.lineWidth = 3 - i * 0.5;
+
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, ringR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Spawn embers along the wavefront
+        if (Math.random() < 0.8) {
+          const angle = Math.random() * Math.PI * 2;
+          const ex = this.x + Math.cos(angle) * this.r;
+          const ey = this.y + Math.sin(angle) * this.r;
+          const speed = 1 + Math.random() * 3;
+          embers.push(new Ember(
+            ex, ey,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed - 1,
+            0.6 + Math.random() * 0.4
+          ));
+        }
+      }
+    }
+
+    function init() {
+      W = cv.width = window.innerWidth;
+      H = cv.height = window.innerHeight;
+      embers = [];
+      ash = [];
+      phoenix = null;
+      time = 0;
+    }
+
+    function spawnEmber(x, y) {
+      const speed = 0.5 + Math.random() * 2;
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.6;
+      embers.push(new Ember(
+        x + (Math.random() - 0.5) * 20,
+        y + (Math.random() - 0.5) * 20,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed - 0.5,
+        0.5 + Math.random() * 0.5
+      ));
+    }
+
+    function drawBackground() {
+      // Warm dark gradient — like looking into dying coals
+      const cx = W / 2;
+      const cy = H * 0.6;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.8);
+      grad.addColorStop(0, '#1a0a04');
+      grad.addColorStop(0.3, '#0e0603');
+      grad.addColorStop(0.7, '#070403');
+      grad.addColorStop(1, '#040201');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawHeatSource() {
+      // The dying fire at the bottom center — source of all embers
+      const cx = W / 2;
+      const cy = H * 0.75;
+      const pulse = 0.7 + 0.3 * Math.sin(time * 0.03);
+
+      for (let layer = 4; layer >= 0; layer--) {
+        const r = (60 + layer * 40) * pulse;
+        const a = (0.15 - layer * 0.025) * pulse;
+        if (a <= 0) continue;
+
+        const col = layer === 0 ? FIRE.white : (layer === 1 ? FIRE.yellow : (layer === 2 ? FIRE.orange : (layer === 3 ? FIRE.red : FIRE.deepRed)));
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0, col + a + ')');
+        grad.addColorStop(0.5, col + (a * 0.3) + ')');
+        grad.addColorStop(1, col + '0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function animate() {
+      time++;
+      drawBackground();
+
+      // Draw heat source glow
+      ctx.globalCompositeOperation = 'screen';
+      drawHeatSource();
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Spawn embers from the source
+      const spawnRate = mouse.active ? 3 : 1;
+      for (let i = 0; i < spawnRate; i++) {
+        if (Math.random() < 0.6) {
+          spawnEmber(W / 2 + (Math.random() - 0.5) * 80, H * 0.75 + (Math.random() - 0.5) * 30);
+        }
+      }
+
+      // Embers
+      ctx.globalCompositeOperation = 'screen';
+      embers = embers.filter(e => e.life > 0);
+      for (const e of embers) {
+        e.update();
+        e.draw();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Ash — dark, drifts slowly
+      ash = ash.filter(a => a.life > 0 && a.y > -50 && a.y < H + 50 && a.x > -50 && a.x < W + 50);
+      for (const a of ash) {
+        a.update();
+        a.draw();
+      }
+
+      // Cap ash count
+      if (ash.length > 300) ash = ash.slice(-300);
+
+      // Phoenix — spontaneous rebirth
+      if (phoenix && !phoenix.dead) {
+        ctx.globalCompositeOperation = 'screen';
+        phoenix.update();
+        phoenix.draw();
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        phoenix = null;
+      }
+
+      // Random phoenix — rebirth from ashes
+      if (Math.random() < 0.001 && !phoenix && embers.length < 100) {
+        phoenix = new Phoenix(W / 2, H * 0.75);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Input
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouse.active = true;
+
+      // Spark trail
+      if (Math.random() < 0.5) {
+        embers.push(new Ember(
+          e.clientX + (Math.random() - 0.5) * 10,
+          e.clientY + (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 2,
+          -0.5 - Math.random() * 1.5,
+          0.4 + Math.random() * 0.3
+        ));
+      }
+    });
+
+    window.addEventListener('mouseleave', () => { mouse.active = false; });
+
+    window.addEventListener('click', (e) => {
+      // Click ignites a phoenix — rebirth where you touch
+      phoenix = new Phoenix(e.clientX, e.clientY);
+      for (let i = 0; i < 30; i++) {
+        const angle = (i / 30) * Math.PI * 2;
+        const speed = 2 + Math.random() * 4;
+        embers.push(new Ember(
+          e.clientX, e.clientY,
+          Math.cos(angle) * speed,
+          Math.sin(angle) * speed,
+          0.7 + Math.random() * 0.3
+        ));
+      }
+    });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches[0]) {
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+        mouse.active = true;
+      }
+    });
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches[0]) {
+        phoenix = new Phoenix(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    });
+
+    window.addEventListener('resize', init);
+
+    init();
+    animate();
+  </script>
+</body>
+</html>
