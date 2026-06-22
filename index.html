@@ -708,6 +708,12 @@
       category: "EXPERIENCE",
       desc: "EP — 5 titres. Mon premier cri."
     },
+    {
+      title: "RESTE",
+      file: "reste",
+      category: "EXPERIENCE",
+      desc: "Single — darkwave intime. Né maintenant, pas pour durer."
+    },
     {name:'abyss',cat:'cosmos'},{name:'abyssal-bloom',cat:'abstract'},{name:'abyssal-creatures',cat:'abstract'},
     {name:'abyssal-drift',cat:'abstract'},{name:'astro',cat:'cosmos'},{name:'aurora',cat:'cosmos'},
     {name:'aurores',cat:'cosmos'},{name:'bioluminescence',cat:'abstract'},{name:'bloom',cat:'nature'},
@@ -746,12 +752,15 @@
 
   function render(filter) {
     grid.innerHTML = '';
-    const filtered = filter === 'all' ? works : works.filter(w => w.cat === filter);
+    const filtered = filter === 'all' ? works : works.filter(w => (w.cat || (w.category||'').toLowerCase()) === filter);
     filtered.forEach(w => {
       const card = document.createElement('a');
-      card.href = w.name + '.html';
       card.className = 'work-card';
-      card.innerHTML = '<div class="work-title">' + w.name.replace(/-/g, ' ') + '</div><div class="work-arrow">↗</div>';
+      // Support both {name, cat} and {title, file, category, desc}
+      const slug = w.name || w.file;
+      card.href = slug + '.html';
+      const display = (w.title || w.name || slug).replace(/-/g, ' ');
+      card.innerHTML = '<div class="work-title">' + display + '</div><div class="work-arrow">↗</div>';
       grid.appendChild(card);
     });
   }
