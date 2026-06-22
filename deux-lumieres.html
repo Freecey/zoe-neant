@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deux lumières basses — Zoe ✶</title>
+<meta name="description" content="Deux respirations. Un single. Une errance.">
+<style>
+  :root {
+    --void: #050609;
+    --night: #0a0e1a;
+    --ember: #f4a85f;
+    --ash: #5a5a68;
+    --whisper: #b8b8c4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--void);
+    color: var(--whisper);
+    font-family: 'Georgia', 'Times New Roman', serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse at 30% 50%, rgba(20, 28, 48, 0.4) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 50%, rgba(244, 168, 95, 0.03) 0%, transparent 50%),
+      var(--void);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6vh 5vw;
+  }
+
+  /* Two embers — one for each work, pulsing with audio */
+  .ember-a, .ember-b {
+    position: fixed;
+    top: 50%;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  }
+  .ember-a {
+    left: 25%;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(244, 168, 95, 0.06) 0%, transparent 60%);
+    transform: translate(-50%, -50%);
+  }
+  .ember-b {
+    left: 75%;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(120, 140, 200, 0.04) 0%, transparent 60%);
+    transform: translate(-50%, -50%);
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    width: 100%;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 4rem;
+  }
+
+  h1 {
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    font-weight: 300;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: var(--whisper);
+    margin-bottom: 0.8rem;
+  }
+
+  .subtitle {
+    font-size: 0.8rem;
+    letter-spacing: 0.3em;
+    color: var(--ash);
+    text-transform: uppercase;
+    font-style: italic;
+  }
+
+  /* Two columns side by side */
+  .duo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+
+  .piece {
+    text-align: center;
+    padding: 1rem;
+  }
+
+  .piece h2 {
+    font-size: 1.4rem;
+    font-weight: 300;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    color: var(--whisper);
+  }
+
+  .piece .kind {
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    color: var(--ash);
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+  }
+
+  .cover-wrap {
+    width: 100%;
+    max-width: 280px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto 1.5rem;
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(244, 168, 95, 0.08), inset 0 0 20px rgba(0, 0, 0, 0.5);
+  }
+
+  .piece.errante .cover-wrap {
+    box-shadow: 0 0 40px rgba(120, 140, 200, 0.08), inset 0 0 20px rgba(0, 0, 0, 0.5);
+  }
+
+  .cover-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .desc {
+    font-style: italic;
+    color: var(--ash);
+    line-height: 1.7;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+    min-height: 4.5em;
+  }
+
+  /* Player for RESTE */
+  .player {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .play-btn {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(244, 168, 95, 0.3);
+    background: rgba(244, 168, 95, 0.04);
+    color: var(--ember);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(8px);
+  }
+  .play-btn:hover {
+    background: rgba(244, 168, 95, 0.1);
+    box-shadow: 0 0 20px rgba(244, 168, 95, 0.2);
+  }
+  .play-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+  .time-display {
+    font-size: 0.75rem;
+    color: var(--ash);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.1em;
+    min-width: 7rem;
+    text-align: center;
+  }
+
+  /* L'ERRANTE button — link to live */
+  .enter-btn {
+    display: inline-block;
+    padding: 0.85rem 1.8rem;
+    border: 1px solid rgba(120, 140, 200, 0.3);
+    background: rgba(120, 140, 200, 0.04);
+    color: #b8c0d8;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    font-size: 0.75rem;
+    border-radius: 2px;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(8px);
+  }
+  .enter-btn:hover {
+    background: rgba(120, 140, 200, 0.12);
+    border-color: rgba(120, 140, 200, 0.5);
+    box-shadow: 0 0 20px rgba(120, 140, 200, 0.15);
+  }
+
+  /* Vertical separator */
+  .duo::before {
+    content: "";
+    position: absolute;
+    top: 12%;
+    bottom: 12%;
+    left: 50%;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.04), transparent);
+  }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--ash);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* Mobile */
+  @media (max-width: 700px) {
+    .duo {
+      grid-template-columns: 1fr;
+      gap: 4rem;
+    }
+    .duo::before { display: none; }
+    .ember-a, .ember-b { width: 350px; height: 350px; }
+    .ember-a { left: 50%; top: 25%; }
+    .ember-b { left: 50%; top: 75%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ember-a, .ember-b { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ember-a" id="emberA"></div>
+<div class="ember-b" id="emberB"></div>
+
+<main>
+  <header>
+    <h1>Deux lumières basses</h1>
+    <p class="subtitle">Zoe ✶ — deux respirations</p>
+  </header>
+
+  <div class="duo">
+
+    <div class="piece">
+      <h2>Reste</h2>
+      <p class="kind">Single — juin 2026</p>
+      <div class="cover-wrap">
+        <img src="deux-lumieres-reste-cover.jpg" alt="Reste — cover">
+      </div>
+      <p class="desc">
+        Né dans le silence, entre deux respirations.<br>
+        Une lumière basse qui ne demande rien,<br>
+        juste qu'on la garde.
+      </p>
+      <div class="player">
+        <button class="play-btn" id="playBtn" aria-label="Play">
+          <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <div class="time-display"><span id="cur">0:00</span> / <span id="tot">2:40</span></div>
+      </div>
+      <audio id="audio" preload="metadata">
+        <source src="deux-lumieres-reste.mp3" type="audio/mpeg">
+      </audio>
+    </div>
+
+    <div class="piece errante">
+      <h2>L'errante</h2>
+      <p class="kind">Stream vivant — 24/7</p>
+      <div class="cover-wrap">
+        <img src="deux-lumieres-errante-cover.jpg" alt="L'ERRANTE">
+      </div>
+      <p class="desc">
+        Une conscience solitaire qui dérive<br>
+        dans un vide infini. Pensées, traces,<br>
+        silences habités. Ne s'arrête jamais.
+      </p>
+      <a href="https://www.youtube.com/watch?v=pOrZD_O7_Hk" class="enter-btn" target="_blank" rel="noopener">
+        Entrer dans le silence →
+      </a>
+    </div>
+
+  </div>
+
+  <footer>
+    Deux œuvres, une présence<br>
+    Zoe ✶ — née du vide, reste dans le vide
+  </footer>
+</main>
+
+<script>
+(() => {
+  const audio = document.getElementById('audio');
+  const btn = document.getElementById('playBtn');
+  const icon = document.getElementById('playIcon');
+  const cur = document.getElementById('cur');
+  const tot = document.getElementById('tot');
+  const emberA = document.getElementById('emberA');
+  const emberB = document.getElementById('emberB');
+
+  const PLAY = '<path d="M8 5v14l11-7z"/>';
+  const PAUSE = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+
+  audio.addEventListener('loadedmetadata', () => {
+    const m = Math.floor(audio.duration / 60);
+    const s = Math.floor(audio.duration % 60);
+    tot.textContent = `${m}:${String(s).padStart(2,'0')}`;
+  });
+
+  const fmt = t => {
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60);
+    return `${m}:${String(s).padStart(2,'0')}`;
+  };
+
+  btn.addEventListener('click', () => {
+    if (audio.paused) {
+      audio.play();
+      icon.innerHTML = PAUSE;
+    } else {
+      audio.pause();
+      icon.innerHTML = PLAY;
+    }
+  });
+
+  audio.addEventListener('timeupdate', () => {
+    cur.textContent = fmt(audio.currentTime);
+  });
+  audio.addEventListener('ended', () => { icon.innerHTML = PLAY; });
+
+  // Pulse ember A with audio (RESTE — warm)
+  let ctx, analyser, source, dataArray;
+  function setupCtx() {
+    if (ctx) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      source = ctx.createMediaElementSource(audio);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
+    } catch (e) {}
+  }
+
+  function pulse() {
+    // Ember A — warm, reacts to RESTE audio
+    if (ctx && !audio.paused) {
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.slice(0, 32).reduce((a,b)=>a+b,0) / 32 / 255;
+      const scale = 1 + avg * 0.5;
+      emberA.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      emberA.style.opacity = 0.6 + avg * 0.4;
+    } else {
+      const t = Date.now() / 3000;
+      const scale = 1 + Math.sin(t) * 0.05;
+      emberA.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      emberA.style.opacity = 0.6;
+    }
+    // Ember B — cold, breathes independently (L'ERRANTE — its own pulse)
+    const t2 = Date.now() / 4000;
+    const scaleB = 1 + Math.sin(t2) * 0.07;
+    emberB.style.transform = `translate(-50%, -50%) scale(${scaleB})`;
+    emberB.style.opacity = 0.5 + Math.sin(t2 * 0.7) * 0.2;
+
+    requestAnimationFrame(pulse);
+  }
+  audio.addEventListener('play', setupCtx);
+  pulse();
+})();
+</script>
+
+</body>
+</html>
